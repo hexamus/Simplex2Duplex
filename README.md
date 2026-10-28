@@ -1,8 +1,8 @@
-# 2-1_Scan
+# Simplex2Duplex
 
 **Le recto-verso pour les scanners qui ne savent faire que du recto.**
 
-Votre chargeur de documents (ADF) ne scanne qu'une face ? Scannez la pile, retournez-la, scannez-la à nouveau : 2-1_Scan récupère les deux PDF dans un dossier, remet les pages dans l'ordre (1, 2, 3, 4…) et dépose un PDF recto-verso unique dans le dossier de votre choix.
+Votre chargeur de documents (ADF) ne scanne qu'une face ? Scannez la pile, retournez-la, scannez-la à nouveau : Simplex2Duplex récupère les deux PDF dans un dossier, remet les pages dans l'ordre (1, 2, 3, 4…) et dépose un PDF recto-verso unique dans le dossier de votre choix.
 
 Remplaçant maintenu de [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/pdfcollate) (plus mis à jour depuis 2022), avec en plus : choix libre des dossiers, assemblage **sans perte** qui conserve l'OCR du scanner, OCR optionnel, suppression des versos blancs, rotation des versos, gestion des erreurs et des scans simple face.
 
@@ -12,7 +12,7 @@ Remplaçant maintenu de [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/
                    └─ scan_0002.pdf  (versos 6-4-2) ┴─►  Scan_2026-10-28_10-15-03.pdf (1-2-3-4-5-6)
 ```
 
-Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/2-1_scan`
+Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/Simplex2Duplex`
 
 ---
 
@@ -36,9 +36,9 @@ Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/2-1_scan`
 
 ```yaml
 services:
-  2-1_scan:
-    image: ghcr.io/hexamus/2-1_scan:latest
-    container_name: 2-1_scan
+  Simplex2Duplex:
+    image: ghcr.io/hexamus/Simplex2Duplex:latest
+    container_name: Simplex2Duplex
     restart: unless-stopped
     user: "1000:1000"                 # utilisateur propriétaire des dossiers
     volumes:
@@ -50,7 +50,7 @@ services:
 
 ```bash
 docker compose up -d
-docker logs -f 2-1_scan
+docker logs -f Simplex2Duplex
 ```
 
 Un fichier [`docker-compose.yml`](docker-compose.yml) complet et commenté, prêt pour un Synology, est fourni dans le dépôt.
@@ -116,11 +116,11 @@ Le PDF final est d'abord écrit sous un nom temporaire caché (`.nom.pdf.part`) 
 
 ### Par défaut : aucune perte
 
-Avec les réglages par défaut (`OCR=keep`, `OPTIMIZE=0`, `OUTPUT_TYPE=pdf`), 2-1_Scan **ne recompresse rien**. Les pages sont recopiées objet par objet avec [pikepdf](https://github.com/pikepdf/pikepdf) : images, résolution, couleurs et **calque de texte OCR produit par le scanner** arrivent intacts dans le PDF final. La qualité se règle donc là où elle doit l'être : **dans le profil de scan** (résolution, couleur/gris, format « PDF interrogeable » si votre scanner le propose).
+Avec les réglages par défaut (`OCR=keep`, `OPTIMIZE=0`, `OUTPUT_TYPE=pdf`), Simplex2Duplex **ne recompresse rien**. Les pages sont recopiées objet par objet avec [pikepdf](https://github.com/pikepdf/pikepdf) : images, résolution, couleurs et **calque de texte OCR produit par le scanner** arrivent intacts dans le PDF final. La qualité se règle donc là où elle doit l'être : **dans le profil de scan** (résolution, couleur/gris, format « PDF interrogeable » si votre scanner le propose).
 
 ### Quand ajouter de l'OCR ou optimiser
 
-Si votre scanner produit des PDF sans texte, ou si vous voulez des fichiers plus légers, 2-1_Scan s'appuie sur [OCRmyPDF](https://ocrmypdf.readthedocs.io/) et Tesseract (français et anglais inclus).
+Si votre scanner produit des PDF sans texte, ou si vous voulez des fichiers plus légers, Simplex2Duplex s'appuie sur [OCRmyPDF](https://ocrmypdf.readthedocs.io/) et Tesseract (français et anglais inclus).
 
 | `OCR` | Effet | Images d'origine |
 |---|---|---|
@@ -192,14 +192,14 @@ Instructions pour DSM 7.2 et Container Manager.
 
 1. **Créer les dossiers**, par exemple `Papier/tmp_scan` et `Papier/Scans` dans File Station.
 2. **Trouver l'UID/GID de l'utilisateur** qu'utilisera le scanner pour écrire en SMB. En SSH : `id scanner` → par exemple `uid=1026(scanner) gid=100(users)`. Cet utilisateur doit avoir les droits lecture/écriture sur les deux dossiers.
-3. **Container Manager → Projet → Créer** : chemin `/volume1/docker/2-1_scan`, source « Créer docker-compose.yml », collez le [`docker-compose.yml`](docker-compose.yml) du dépôt en ajustant `user:` et les chemins.
-4. Lancez le projet, puis ouvrez **Conteneur → 2-1_scan → Journal** : la ligne `2-1_Scan … démarré` récapitule la configuration active.
+3. **Container Manager → Projet → Créer** : chemin `/volume1/docker/Simplex2Duplex`, source « Créer docker-compose.yml », collez le [`docker-compose.yml`](docker-compose.yml) du dépôt en ajustant `user:` et les chemins.
+4. Lancez le projet, puis ouvrez **Conteneur → Simplex2Duplex → Journal** : la ligne `Simplex2Duplex … démarré` récapitule la configuration active.
 
 Pourquoi `user:` ? Le conteneur tourne alors avec la même identité que le scanner : il peut archiver ou supprimer les PDF déposés, et les PDF produits vous appartiennent (pas de fichiers `root` impossibles à supprimer depuis File Station).
 
 Les dossiers `@eaDir` créés par l'indexation Synology et les fichiers cachés sont ignorés.
 
-**Mise à jour** : Container Manager → Projet → 2-1_scan → Action → *Construire* (re-télécharge `latest`), ou figez une version précise (`ghcr.io/hexamus/2-1_scan:1.0.0`).
+**Mise à jour** : Container Manager → Projet → Simplex2Duplex → Action → *Construire* (re-télécharge `latest`), ou figez une version précise (`ghcr.io/hexamus/Simplex2Duplex:1.0.0`).
 
 ---
 
@@ -212,7 +212,7 @@ Les profils se créent dans l'interface web de l'imprimante (**Gestion à partir
 1. **Numériser → Numérisation vers FTP/SFTP/Réseau/HTTP/SharePoint** : choisissez **Réseau** pour un profil libre, donnez-lui un nom (ex. `Recto-verso`).
 2. **Profil de numérisation vers le réseau** — renseignez :
    - Adresse de l'hôte : IP du NAS ; Répertoire de stockage : `Papier\tmp_scan`
-   - Nom de fichier : au choix (2-1_Scan renomme le résultat)
+   - Nom de fichier : au choix (Simplex2Duplex renomme le résultat)
    - Qualité : `Couleur 300 ppp` ou `Gris 300 ppp`
    - Type de fichier : **PDF multi-pages** (ou PDF interrogeable si proposé)
    - Méthode d'authentification : `Auto` ; utilisateur / mot de passe du compte SMB choisi plus haut
@@ -230,7 +230,7 @@ Sur l'écran tactile : **Numériser → vers le réseau → Recto-verso**, une f
 Sans surveillance de dossier, pour un fichier isolé :
 
 ```bash
-docker run --rm -v "$PWD":/data ghcr.io/hexamus/2-1_scan \
+docker run --rm -v "$PWD":/data ghcr.io/hexamus/Simplex2Duplex \
   merge /data/rectos.pdf /data/versos.pdf -o /data/document.pdf
 ```
 
@@ -265,9 +265,9 @@ Le conteneur expose un *healthcheck* : il passe `unhealthy` si la boucle de surv
 
 ## Migrer depuis pdfcollate
 
-| pdfcollate | 2-1_Scan |
+| pdfcollate | Simplex2Duplex |
 |---|---|
-| `image: cranium/pdfcollate` | `image: ghcr.io/hexamus/2-1_scan` |
+| `image: cranium/pdfcollate` | `image: ghcr.io/hexamus/Simplex2Duplex` |
 | `/DossierScans:/files` | `/DossierScans:/input` |
 | `/Destination:/output` | `/Destination:/output` (inchangé) |
 
@@ -278,13 +278,13 @@ Le comportement par défaut est le même (deux fichiers, versos inversés). Nouv
 ## Construire l'image soi-même
 
 ```bash
-git clone https://github.com/hexamus/2-1_Scan.git && cd 2-1_Scan
-docker build -t 2-1_scan .
+git clone https://github.com/hexamus/Simplex2Duplex.git && cd Simplex2Duplex
+docker build -t Simplex2Duplex .
 ```
 
 L'image publiée est construite par GitHub Actions ([`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)) pour `linux/amd64` et `linux/arm64` :
 
-- chaque push sur `main` → `ghcr.io/hexamus/2-1_scan:latest` et `:sha-xxxxxxx` ;
+- chaque push sur `main` → `ghcr.io/hexamus/Simplex2Duplex:latest` et `:sha-xxxxxxx` ;
 - chaque tag `vX.Y.Z` → `:X.Y.Z` et `:X.Y`.
 
 Base : Debian trixie-slim, OCRmyPDF 16, pikepdf 9, Tesseract 5 (fra, eng).
