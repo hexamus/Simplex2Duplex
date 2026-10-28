@@ -27,7 +27,6 @@ Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/Simplex2Duplex`
 - [Configurer le scanner (exemple Brother)](#configurer-le-scanner-exemple-brother)
 - [Assemblage ponctuel en ligne de commande](#assemblage-ponctuel-en-ligne-de-commande)
 - [Dépannage](#dépannage)
-- [Migrer depuis pdfcollate](#migrer-depuis-pdfcollate)
 - [Construire l'image soi-même](#construire-limage-soi-même)
 
 ---
@@ -263,17 +262,6 @@ Le conteneur expose un *healthcheck* : il passe `unhealthy` si la boucle de surv
 
 ---
 
-## Migrer depuis pdfcollate
-
-| pdfcollate | Simplex2Duplex |
-|---|---|
-| `image: cranium/pdfcollate` | `image: ghcr.io/hexamus/Simplex2Duplex` |
-| `/DossierScans:/files` | `/DossierScans:/input` |
-| `/Destination:/output` | `/Destination:/output` (inchangé) |
-
-Le comportement par défaut est le même (deux fichiers, versos inversés). Nouveautés : pas de dépendance à inotify (fonctionne sur partages réseau et montages NFS/SMB), délai simple face, dossier d'erreurs, archivage des originaux, OCR et optimisation optionnels, suppression des versos blancs, rotation, image `arm64`.
-
----
 
 ## Construire l'image soi-même
 
