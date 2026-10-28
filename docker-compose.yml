@@ -1,0 +1,35 @@
+# 2-1_Scan — exemple pour Synology (Container Manager > Projet)
+# Adaptez les chemins de gauche (hôte) à votre NAS ; ne touchez pas à ceux de droite.
+
+services:
+  2-1_scan:
+    image: ghcr.io/hexamus/2-1_scan:latest
+    container_name: 2-1_scan
+    restart: unless-stopped
+    # UID:GID de l'utilisateur SMB utilisé par le scanner (commande `id <utilisateur>` en SSH).
+    # Les PDF produits lui appartiendront et il pourra supprimer/archiver les originaux.
+    user: "1026:100"
+    volumes:
+      - /volume1/Papier/tmp_scan:/input     # où le scanner dépose les 2 PDF
+      - /volume1/Papier/Scans:/output       # où arrive le PDF recto-verso
+    environment:
+      TZ: Europe/Paris
+
+      # --- Appariement ---------------------------------------------------
+      PAIR_TIMEOUT: "900"        # s ; fichier seul après ce délai → publié tel quel (0 = attendre)
+      STABLE_SECONDS: "10"       # s sans modification avant de considérer un fichier complet
+      REVERSE_EVEN: "true"       # versos scannés pile retournée → ordre inversé
+      ROTATE_EVEN: "0"           # 180 si vos versos sortent à l'envers
+      REMOVE_BLANK: "false"      # true = supprime les versos blancs
+      BLANK_THRESHOLD: "0.5"     # % d'encre sous lequel un verso est jugé blanc
+
+      # --- Qualité / OCR -------------------------------------------------
+      OCR: "keep"                # keep | auto | redo | force
+      OCR_LANG: "fra+eng"
+      OPTIMIZE: "0"              # 0 = aucune recompression ; 1 sans perte ; 2-3 avec perte
+      OUTPUT_TYPE: "pdf"         # pdf | pdfa
+
+      # --- Fichiers ------------------------------------------------------
+      FILENAME_PATTERN: "Scan_%Y-%m-%d_%H-%M-%S"
+      ORIGINALS: "keep"          # keep → /input/_originaux ; delete → supprimés
+      LOG_LEVEL: "INFO"
