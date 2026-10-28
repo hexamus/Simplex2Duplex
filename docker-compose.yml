@@ -1,10 +1,10 @@
-# 2-1_Scan — exemple pour Synology (Container Manager > Projet)
+# Simplex2Duplex — exemple pour Synology (Container Manager > Projet)
 # Adaptez les chemins de gauche (hôte) à votre NAS ; ne touchez pas à ceux de droite.
 
 services:
-  2-1_scan:
-    image: ghcr.io/hexamus/2-1_scan:latest
-    container_name: 2-1_scan
+  simplex2duplex:
+    image: ghcr.io/hexamus/simplex2duplex:latest
+    container_name: simplex2duplex
     restart: unless-stopped
     # UID:GID de l'utilisateur SMB utilisé par le scanner (commande `id <utilisateur>` en SSH).
     # Les PDF produits lui appartiendront et il pourra supprimer/archiver les originaux.

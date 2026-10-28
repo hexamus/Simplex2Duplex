@@ -2,9 +2,10 @@ FROM debian:trixie-slim
 
 ARG APP_VERSION=dev
 
-LABEL org.opencontainers.image.title="2-1_Scan" \
+LABEL org.opencontainers.image.title="Simplex2Duplex" \
       org.opencontainers.image.description="Assemble automatiquement deux PDF (rectos + versos) en un PDF recto-verso — remplaçant de pdfcollate" \
-      org.opencontainers.image.source="https://github.com/hexamus/2-1_Scan" \
+      org.opencontainers.image.source="https://github.com/hexamus/Simplex2Duplex" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${APP_VERSION}"
 
 # ocrmypdf apporte python3, pikepdf, Pillow, tesseract et ghostscript.
@@ -33,7 +34,7 @@ WORKDIR /app
 VOLUME ["/input", "/output"]
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
-  CMD find /tmp/2-1_scan.heartbeat -mmin -3 | grep -q . || exit 1
+  CMD find /tmp/simplex2duplex.heartbeat -mmin -3 | grep -q . || exit 1
 
 ENTRYPOINT ["python3", "/app/collate.py"]
 CMD ["watch"]

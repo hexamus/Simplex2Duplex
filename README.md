@@ -12,7 +12,7 @@ Remplaçant maintenu de [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/
                    └─ scan_0002.pdf  (versos 6-4-2) ┴─►  Scan_2026-10-28_10-15-03.pdf (1-2-3-4-5-6)
 ```
 
-Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/Simplex2Duplex`
+Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/simplex2duplex`
 
 ---
 
@@ -35,9 +35,9 @@ Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/Simplex2Duplex`
 
 ```yaml
 services:
-  Simplex2Duplex:
-    image: ghcr.io/hexamus/Simplex2Duplex:latest
-    container_name: Simplex2Duplex
+  simplex2duplex:
+    image: ghcr.io/hexamus/simplex2duplex:latest
+    container_name: simplex2duplex
     restart: unless-stopped
     user: "1000:1000"                 # utilisateur propriétaire des dossiers
     volumes:
@@ -49,7 +49,7 @@ services:
 
 ```bash
 docker compose up -d
-docker logs -f Simplex2Duplex
+docker logs -f simplex2duplex
 ```
 
 Un fichier [`docker-compose.yml`](docker-compose.yml) complet et commenté, prêt pour un Synology, est fourni dans le dépôt.
@@ -192,13 +192,13 @@ Instructions pour DSM 7.2 et Container Manager.
 1. **Créer les dossiers**, par exemple `Papier/tmp_scan` et `Papier/Scans` dans File Station.
 2. **Trouver l'UID/GID de l'utilisateur** qu'utilisera le scanner pour écrire en SMB. En SSH : `id scanner` → par exemple `uid=1026(scanner) gid=100(users)`. Cet utilisateur doit avoir les droits lecture/écriture sur les deux dossiers.
 3. **Container Manager → Projet → Créer** : chemin `/volume1/docker/Simplex2Duplex`, source « Créer docker-compose.yml », collez le [`docker-compose.yml`](docker-compose.yml) du dépôt en ajustant `user:` et les chemins.
-4. Lancez le projet, puis ouvrez **Conteneur → Simplex2Duplex → Journal** : la ligne `Simplex2Duplex … démarré` récapitule la configuration active.
+4. Lancez le projet, puis ouvrez **Conteneur → simplex2duplex → Journal** : la ligne `Simplex2Duplex … démarré` récapitule la configuration active.
 
 Pourquoi `user:` ? Le conteneur tourne alors avec la même identité que le scanner : il peut archiver ou supprimer les PDF déposés, et les PDF produits vous appartiennent (pas de fichiers `root` impossibles à supprimer depuis File Station).
 
 Les dossiers `@eaDir` créés par l'indexation Synology et les fichiers cachés sont ignorés.
 
-**Mise à jour** : Container Manager → Projet → Simplex2Duplex → Action → *Construire* (re-télécharge `latest`), ou figez une version précise (`ghcr.io/hexamus/Simplex2Duplex:1.0.0`).
+**Mise à jour** : Container Manager → Projet → Simplex2Duplex → Action → *Construire* (re-télécharge `latest`), ou figez une version précise (`ghcr.io/hexamus/simplex2duplex:1.0.0`).
 
 ---
 
@@ -229,7 +229,7 @@ Sur l'écran tactile : **Numériser → vers le réseau → Recto-verso**, une f
 Sans surveillance de dossier, pour un fichier isolé :
 
 ```bash
-docker run --rm -v "$PWD":/data ghcr.io/hexamus/Simplex2Duplex \
+docker run --rm -v "$PWD":/data ghcr.io/hexamus/simplex2duplex \
   merge /data/rectos.pdf /data/versos.pdf -o /data/document.pdf
 ```
 
@@ -267,12 +267,18 @@ Le conteneur expose un *healthcheck* : il passe `unhealthy` si la boucle de surv
 
 ```bash
 git clone https://github.com/hexamus/Simplex2Duplex.git && cd Simplex2Duplex
-docker build -t Simplex2Duplex .
+docker build -t simplex2duplex .
 ```
 
 L'image publiée est construite par GitHub Actions ([`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)) pour `linux/amd64` et `linux/arm64` :
 
-- chaque push sur `main` → `ghcr.io/hexamus/Simplex2Duplex:latest` et `:sha-xxxxxxx` ;
+- chaque push sur `main` → `ghcr.io/hexamus/simplex2duplex:latest` et `:sha-xxxxxxx` ;
 - chaque tag `vX.Y.Z` → `:X.Y.Z` et `:X.Y`.
 
 Base : Debian trixie-slim, OCRmyPDF 16, pikepdf 9, Tesseract 5 (fra, eng).
+
+---
+
+## Licence
+
+Distribué sous licence [MIT](LICENSE). Image construite à partir de logiciels libres : OCRmyPDF (MPL-2.0), pikepdf (MPL-2.0), Tesseract (Apache-2.0), Ghostscript (AGPL-3.0), Poppler (GPL).

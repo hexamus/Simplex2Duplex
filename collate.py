@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-2-1_Scan — assemble deux PDF (rectos + versos) en un seul PDF recto-verso.
+Simplex2Duplex — assemble deux PDF (rectos + versos) en un seul PDF recto-verso.
 
 Remplaçant de cranium/pdfcollate pour les scanners dont le chargeur (ADF)
 ne numérise qu'une face : on scanne la pile une première fois (rectos),
 on la retourne, on la scanne une seconde fois (versos, en ordre inverse),
-et 2-1_Scan reconstitue le document dans le bon ordre.
+et Simplex2Duplex reconstitue le document dans le bon ordre.
 
 Deux modes :
   collate.py                      -> surveille INPUT_DIR (mode service, Docker)
@@ -35,7 +35,7 @@ import pikepdf
 
 __version__ = os.environ.get("APP_VERSION", "dev")
 
-log = logging.getLogger("2-1_scan")
+log = logging.getLogger("simplex2duplex")
 
 
 # --------------------------------------------------------------------------- #
@@ -230,7 +230,7 @@ def _copy_metadata(src: pikepdf.Pdf, dst: pikepdf.Pdf) -> None:
         for key in ("/Author", "/Creator", "/CreationDate"):
             if key in src.docinfo:
                 dst.docinfo[key] = src.docinfo[key]
-        dst.docinfo["/Producer"] = f"2-1_Scan {__version__} (pikepdf {pikepdf.__version__})"
+        dst.docinfo["/Producer"] = f"Simplex2Duplex {__version__} (pikepdf {pikepdf.__version__})"
     except Exception:  # métadonnées non critiques
         pass
 
@@ -345,7 +345,7 @@ def process(files: list[Path], cfg: Config) -> Path | None:
 # --------------------------------------------------------------------------- #
 
 class Watcher:
-    HEARTBEAT = Path(os.environ.get("HEARTBEAT_FILE", "/tmp/2-1_scan.heartbeat"))
+    HEARTBEAT = Path(os.environ.get("HEARTBEAT_FILE", "/tmp/simplex2duplex.heartbeat"))
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -428,7 +428,7 @@ class Watcher:
         signal.signal(signal.SIGINT, self.stop)
         self.cfg.input_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        log.info("2-1_Scan %s démarré — %s", __version__, self.cfg.describe())
+        log.info("Simplex2Duplex %s démarré — %s", __version__, self.cfg.describe())
         while self.running:
             try:
                 self.tick()
@@ -453,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="collate.py",
         description="Assemble un PDF de rectos et un PDF de versos en un seul PDF recto-verso.",
     )
-    parser.add_argument("--version", action="version", version=f"2-1_Scan {__version__}")
+    parser.add_argument("--version", action="version", version=f"Simplex2Duplex {__version__}")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("watch", help="surveille INPUT_DIR (comportement par défaut)")
     m = sub.add_parser("merge", help="assemble deux fichiers une seule fois")
