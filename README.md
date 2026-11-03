@@ -275,7 +275,7 @@ L'image publiée est construite par GitHub Actions ([`.github/workflows/docker-p
 - chaque push sur `main` → `ghcr.io/hexamus/simplex2duplex:latest` et `:sha-xxxxxxx` ;
 - chaque tag `vX.Y.Z` → `:X.Y.Z` et `:X.Y`.
 
-Base : Debian trixie-slim, OCRmyPDF 16, pikepdf 9, Tesseract 5 (fra, eng).
+Base : `python:3.13-alpine`, OCRmyPDF 17, pikepdf 10, Pillow 13 (depuis PyPI), Tesseract 5 (fra, eng). L'image est reconstruite sans cache chaque lundi pour intégrer les derniers correctifs de sécurité Alpine et PyPI.
 
 ---
 
