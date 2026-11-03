@@ -1,0 +1,6 @@
+# Dépendances Python de l'image (installées depuis PyPI pour profiter des
+# correctifs de sécurité dès leur publication, sans attendre Debian/Alpine).
+# Bornes larges volontaires : chaque rebuild récupère les derniers correctifs.
+ocrmypdf>=17.13,<18
+pikepdf>=10.17
+pillow>=13.0
