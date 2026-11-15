@@ -40,7 +40,7 @@ ENV APP_VERSION=${APP_VERSION} \
     INPUT_DIR=/input \
     OUTPUT_DIR=/output
 
-COPY collate.py /app/collate.py
+COPY collate.py notify.py /app/
 RUN chmod 0755 /app/collate.py
 
 WORKDIR /app

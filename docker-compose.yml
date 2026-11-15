@@ -33,3 +33,16 @@ services:
       FILENAME_PATTERN: "Scan_%Y-%m-%d_%H-%M-%S"
       ORIGINALS: "keep"          # keep → /input/_originaux ; delete → supprimés
       LOG_LEVEL: "INFO"
+
+      # --- Notifications (facultatif) ------------------------------------
+      # Événements : success, partial, single, error, startup — ou all / none
+      NOTIFY_EVENTS: "error,partial"
+      # TELEGRAM_BOT_TOKEN: "123456:ABC-DEF..."
+      # TELEGRAM_CHAT_ID: "123456789"
+      # TELEGRAM_EVENTS: "all"            # filtre propre à Telegram (sinon NOTIFY_EVENTS)
+      # NTFY_URL: "https://ntfy.sh/mon-sujet-secret"
+      # NTFY_TOKEN: "tk_..."
+      # NTFY_EVENTS: "all"
+      # APPRISE_URLS: "discord://id/token gotify://hote/jeton"
+      # APPRISE_EVENTS: "error"
+      # APPRISE_API_URL: "http://apprise:8000/notify/ma-cle"

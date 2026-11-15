@@ -4,7 +4,7 @@
 
 Votre chargeur de documents (ADF) ne scanne qu'une face ? Scannez la pile, retournez-la, scannez-la à nouveau : Simplex2Duplex récupère les deux PDF dans un dossier, remet les pages dans l'ordre (1, 2, 3, 4…) et dépose un PDF recto-verso unique dans le dossier de votre choix.
 
-Remplaçant maintenu de [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/pdfcollate) (plus mis à jour depuis 2022), avec en plus : choix libre des dossiers, assemblage **sans perte** qui conserve l'OCR du scanner, OCR optionnel, suppression des versos blancs, rotation des versos, gestion des erreurs et des scans simple face.
+Remplaçant maintenu de [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/pdfcollate) (plus mis à jour depuis 2022), avec en plus : choix libre des dossiers, assemblage **sans perte** qui conserve l'OCR du scanner, OCR optionnel, suppression des versos blancs, rotation des versos, gestion des erreurs et des scans simple face, **notifications** (Telegram, ntfy, Apprise).
 
 ```text
  Scanner ─ SMB ─►  /input                              /output
@@ -22,6 +22,7 @@ Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/simplex2duplex`
 - [Comment scanner](#comment-scanner)
 - [Choisir les dossiers](#choisir-les-dossiers)
 - [Qualité et OCR](#qualité-et-ocr)
+- [Notifications](#notifications)
 - [Toutes les variables](#toutes-les-variables)
 - [Installation sur Synology](#installation-sur-synology)
 - [Configurer le scanner (exemple Brother)](#configurer-le-scanner-exemple-brother)
@@ -157,6 +158,94 @@ En cas d'échec d'OCRmyPDF, le PDF assemblé est publié **sans** post-traitemen
 
 ---
 
+## Notifications
+
+Simplex2Duplex peut prévenir quand un scan est prêt, ou seulement quand quelque chose cloche. Quatre services sont pris en charge ; chacun s'active dès que sa variable principale est renseignée, et plusieurs peuvent fonctionner en même temps.
+
+| Service | Variables minimales |
+|---|---|
+| **Telegram** | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
+| **ntfy** | `NTFY_URL` (ex. `https://ntfy.sh/mes-scans`) |
+| **Apprise** (bibliothèque intégrée, 100+ services : Discord, Gotify, Pushover, e-mail, Matrix, Home Assistant…) | `APPRISE_URLS` |
+| **Apprise API** (serveur [apprise-api](https://github.com/caronc/apprise-api) déjà en place) | `APPRISE_API_URL` |
+
+### Choisir les événements
+
+| Événement | Quand | Alias acceptés |
+|---|---|---|
+| `success` | Assemblage recto-verso réussi | `succes`, `ok`, `reussi` |
+| `partial` | PDF publié, mais avec un problème : OCR/optimisation en échec, original impossible à archiver… | `partiel`, `warning` |
+| `single` | Fichier resté seul, publié en simple face après `PAIR_TIMEOUT` | `simple` |
+| `error` | Assemblage impossible (fichiers dans `_erreurs`), écriture impossible, erreur inattendue | `erreur`, `echec` |
+| `startup` | Démarrage du conteneur | `demarrage` |
+
+`NOTIFY_EVENTS` fixe le filtre commun : `all` (tout), `none` (rien) ou une liste, par exemple `error,partial` *(défaut)*. Chaque service peut avoir son propre filtre, qui remplace alors `NOTIFY_EVENTS` pour lui seul : `TELEGRAM_EVENTS`, `NTFY_EVENTS`, `APPRISE_EVENTS`, `APPRISE_API_EVENTS`.
+
+Exemple : seulement les problèmes sur Telegram, mais tout sur ntfy.
+
+```yaml
+environment:
+  NOTIFY_EVENTS: "error,partial"          # filtre commun
+  TELEGRAM_BOT_TOKEN: "123456:ABC-DEF…"
+  TELEGRAM_CHAT_ID: "123456789"
+  NTFY_URL: "https://ntfy.example.com/scans"
+  NTFY_TOKEN: "tk_…"
+  NTFY_EVENTS: "all"                      # ntfy reçoit tout
+```
+
+Une erreur qui se répète à l'identique (dossier de sortie inaccessible, par exemple) n'est notifiée qu'une fois. Les envois partent en arrière-plan avec 3 tentatives : un service injoignable ne bloque jamais l'assemblage.
+
+### Telegram
+
+1. Créez un bot avec [@BotFather](https://t.me/BotFather) → `/newbot` → copiez le jeton dans `TELEGRAM_BOT_TOKEN`.
+2. Envoyez un message à votre bot (ou ajoutez-le à un groupe), puis ouvrez `https://api.telegram.org/bot<JETON>/getUpdates` : la valeur `chat.id` va dans `TELEGRAM_CHAT_ID` (les groupes commencent par `-100`).
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `TELEGRAM_CHAT_ID` | | Un ou plusieurs identifiants séparés par des virgules |
+| `TELEGRAM_THREAD_ID` | | Sujet (topic) d'un groupe-forum |
+| `TELEGRAM_SILENT_EVENTS` | `success,single,startup` | Événements envoyés sans son ; `none` pour toujours sonner |
+| `TELEGRAM_API_URL` | `https://api.telegram.org` | Serveur Bot API auto-hébergé |
+
+### ntfy
+
+| Variable | Rôle |
+|---|---|
+| `NTFY_URL` | Serveur + sujet : `https://ntfy.sh/mon-sujet-secret` ou votre instance |
+| `NTFY_TOKEN` | Jeton d'accès (`tk_…`) — ou bien `NTFY_USER` + `NTFY_PASSWORD` |
+| `NTFY_PRIORITY` | Force une priorité 1-5. Par défaut : erreur 5, partiel 4, réussite/simple 3, démarrage 2 |
+| `NTFY_TAGS` | Remplace les tags/emojis automatiques (ex. `printer,fr`) |
+| `NTFY_CLICK` | URL ouverte en touchant la notification (ex. votre Paperless) |
+
+### Apprise
+
+`APPRISE_URLS` accepte une ou plusieurs [URL Apprise](https://github.com/caronc/apprise/wiki) séparées par des espaces ou des virgules :
+
+```yaml
+APPRISE_URLS: "discord://webhook_id/webhook_token gotify://gotify.example.com/AbCdEf"
+```
+
+Si vous avez déjà un serveur **apprise-api**, utilisez plutôt :
+
+| Variable | Rôle |
+|---|---|
+| `APPRISE_API_URL` | `http://apprise:8000/notify/ma-cle` (configuration enregistrée sur le serveur) ou `http://apprise:8000/notify/` |
+| `APPRISE_API_URLS` | URL(s) de destination, uniquement avec `/notify/` sans clé |
+| `APPRISE_API_TAG` | Ne notifier que les cibles portant ce tag |
+
+### Tester
+
+```bash
+docker exec simplex2duplex python3 /app/collate.py notify-test          # tous les services, sans filtre
+docker exec simplex2duplex python3 /app/collate.py notify-test error    # simule une erreur, filtres appliqués
+```
+
+Au démarrage, le journal indique les services actifs et leurs événements : `notifications : telegram[partial,error] ntfy[success,partial,single,error,startup]`.
+
+`NOTIFY_PREFIX` (ex. `Bureau`) préfixe chaque titre : pratique avec plusieurs instances.
+
+---
+
 ## Toutes les variables
 
 | Variable | Défaut | Description |
@@ -182,6 +271,7 @@ En cas d'échec d'OCRmyPDF, le PDF assemblé est publié **sans** post-traitemen
 | `FILENAME_PATTERN` | `Scan_%Y-%m-%d_%H-%M-%S` | Nom du fichier produit, au format [strftime](https://strftime.org/). `.pdf` est ajouté, ainsi que `_2`, `_3`… en cas de doublon |
 | `TZ` | `Europe/Paris` | Fuseau horaire (horodatage des noms et des logs) |
 | `LOG_LEVEL` | `INFO` | `DEBUG` affiche notamment le taux d'encre de chaque verso |
+| `NOTIFY_EVENTS` | `error,partial` | Événements notifiés : `all`, `none` ou liste (voir [Notifications](#notifications), qui détaille aussi les variables de chaque service) |
 
 ---
 
@@ -256,6 +346,7 @@ INPUT_DIR=~/scans OUTPUT_DIR=~/documents python3 collate.py
 | Un verso blanc n'est pas supprimé | Montez `BLANK_THRESHOLD` (ex. `1.5`) : bruit, ombre ou transparence du recto. |
 | `Permission denied` dans les logs | L'utilisateur de `user:` n'a pas les droits sur les dossiers montés. |
 | Un fichier arrivé seul a été publié trop tôt | Augmentez `PAIR_TIMEOUT`. |
+| Aucune notification reçue | `notify-test` (voir [Tester](#tester)) ; vérifiez le filtre `NOTIFY_EVENTS` et que le NAS peut joindre le service (DNS, pare-feu). |
 | Deux scans simultanés de personnes différentes se mélangent | L'appariement suit l'ordre d'arrivée : utilisez un dossier surveillé par personne (une instance par dossier). |
 
 Le conteneur expose un *healthcheck* : il passe `unhealthy` si la boucle de surveillance se bloque.
@@ -275,7 +366,7 @@ L'image publiée est construite par GitHub Actions ([`.github/workflows/docker-p
 - chaque push sur `main` → `ghcr.io/hexamus/simplex2duplex:latest` et `:sha-xxxxxxx` ;
 - chaque tag `vX.Y.Z` → `:X.Y.Z` et `:X.Y`.
 
-Base : `python:3.13-alpine`, OCRmyPDF 17, pikepdf 10, Pillow 13 (depuis PyPI), Tesseract 5 (fra, eng). L'image est reconstruite sans cache chaque lundi pour intégrer les derniers correctifs de sécurité Alpine et PyPI.
+Base : `python:3.13-alpine`, OCRmyPDF 17, pikepdf 10, Pillow 13, Apprise (depuis PyPI), Tesseract 5 (fra, eng). L'image est reconstruite sans cache chaque lundi pour intégrer les derniers correctifs de sécurité Alpine et PyPI.
 
 ---
 
