@@ -33,6 +33,8 @@ from pathlib import Path
 
 import pikepdf
 
+from notify import Notifier
+
 __version__ = os.environ.get("APP_VERSION", "dev")
 
 log = logging.getLogger("simplex2duplex")
@@ -287,7 +289,9 @@ def move_to(src: Path, directory: Path) -> Path:
     return dst
 
 
-def dispose_originals(files: list[Path], cfg: Config) -> None:
+def dispose_originals(files: list[Path], cfg: Config) -> list[str]:
+    """Archive ou supprime les originaux. Retourne la liste des problèmes rencontrés."""
+    problems = []
     for f in files:
         try:
             if cfg.originals == "delete":
@@ -296,13 +300,18 @@ def dispose_originals(files: list[Path], cfg: Config) -> None:
                 move_to(f, cfg.archive_dir)
         except OSError as exc:
             log.warning("impossible de ranger l'original %s : %s", f.name, exc)
+            problems.append(f"original {f.name} non rangé : {exc}")
+    return problems
 
 
-def process(files: list[Path], cfg: Config) -> Path | None:
+def process(files: list[Path], cfg: Config, notifier: Notifier | None = None,
+            reason: str = "") -> Path | None:
     """Traite une paire (2 fichiers) ou un fichier seul. Retourne le PDF produit."""
+    notifier = notifier or Notifier([])
     when = datetime.now()
     names = " + ".join(f.name for f in files)
     t0 = time.monotonic()
+    warnings: list[str] = []
     with tempfile.TemporaryDirectory(prefix="21scan-") as tmp:
         merged = Path(tmp) / "merged.pdf"
         try:
@@ -312,11 +321,17 @@ def process(files: list[Path], cfg: Config) -> Path | None:
                 pages = passthrough(files[0], merged)
         except (CollateError, pikepdf.PdfError) as exc:
             log.error("échec de l'assemblage (%s) : %s → déplacés dans %s", names, exc, cfg.error_dir)
+            moved = []
             for f in files:
                 try:
-                    move_to(f, cfg.error_dir)
+                    moved.append(move_to(f, cfg.error_dir).name)
                 except OSError as mv_exc:
                     log.error("impossible de déplacer %s : %s", f.name, mv_exc)
+            notifier.notify(
+                "error", "Échec de l'assemblage",
+                f"Fichiers : {names}\nCause : {exc}\n"
+                + (f"Déplacés dans : {cfg.error_dir}" if moved else "⚠️ fichiers non déplacés"),
+            )
             return None
 
         result = merged
@@ -327,16 +342,32 @@ def process(files: list[Path], cfg: Config) -> Path | None:
                 result = processed
             except FileNotFoundError:
                 log.warning("ocrmypdf introuvable : PDF publié sans OCR ni optimisation")
+                warnings.append("ocrmypdf introuvable : PDF publié sans OCR ni optimisation")
             except subprocess.CalledProcessError as exc:
                 detail = (exc.stderr or "").strip().splitlines()[-1:] or [""]
                 log.warning("ocrmypdf a échoué (code %s) %s — PDF publié sans post-traitement",
                             exc.returncode, detail[0])
+                warnings.append(f"OCR/optimisation en échec (code {exc.returncode}) {detail[0]}".strip()
+                                + " — PDF publié sans post-traitement")
 
+        # Une erreur d'écriture remonte au Watcher (notifiée une fois, originaux laissés en place).
         final = publish(result, cfg, when)
 
-    dispose_originals(files, cfg)
+    warnings += dispose_originals(files, cfg)
+    elapsed = time.monotonic() - t0
     kind = "recto-verso" if len(files) == 2 else "simple face"
-    log.info("%s → %s (%d page(s), %s, %.1fs)", names, final.name, pages, kind, time.monotonic() - t0)
+    log.info("%s → %s (%d page(s), %s, %.1fs)", names, final.name, pages, kind, elapsed)
+
+    body = f"{final.name} — {pages} page(s), {kind}, {elapsed:.1f}s\nSources : {names}"
+    if reason:
+        body += f"\n{reason}"
+    if warnings:
+        notifier.notify("partial", "Scan publié avec avertissement(s)",
+                        body + "\n" + "\n".join(f"• {w}" for w in warnings))
+    elif len(files) == 1:
+        notifier.notify("single", "Scan simple face publié", body)
+    else:
+        notifier.notify("success", "Scan recto-verso prêt", body)
     return final
 
 
@@ -347,8 +378,10 @@ def process(files: list[Path], cfg: Config) -> Path | None:
 class Watcher:
     HEARTBEAT = Path(os.environ.get("HEARTBEAT_FILE", "/tmp/simplex2duplex.heartbeat"))
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, notifier: Notifier | None = None):
         self.cfg = cfg
+        self.notifier = notifier or Notifier([])
+        self.last_crash: str | None = None
         self.seen: dict[Path, tuple[int, float, float]] = {}  # chemin -> (taille, mtime, vu_stable_depuis)
         self.running = True
         self.waiting_logged: Path | None = None
@@ -407,7 +440,7 @@ class Watcher:
         while len(ready) >= 2:
             pair, ready = ready[:2], ready[2:]
             self.waiting_logged = None
-            process(pair, self.cfg)
+            self._safe_process(pair)
             for p in pair:
                 self.seen.pop(p, None)
         if len(ready) == 1:
@@ -416,12 +449,28 @@ class Watcher:
             if self.cfg.pair_timeout and age >= self.cfg.pair_timeout:
                 log.info("pas de second fichier pour %s après %ds : traité en simple face",
                          single.name, self.cfg.pair_timeout)
-                process([single], self.cfg)
+                self._safe_process([single], reason=f"Aucun second fichier reçu en {self.cfg.pair_timeout}s")
                 self.seen.pop(single, None)
                 self.waiting_logged = None
             elif self.waiting_logged != single:
                 log.info("rectos reçus (%s), en attente des versos…", single.name)
                 self.waiting_logged = single
+
+    def _safe_process(self, files: list[Path], reason: str = "") -> None:
+        try:
+            process(files, self.cfg, self.notifier, reason)
+            self.last_crash = None
+        except Exception as exc:
+            # Fichiers laissés en place : nouvel essai au tour suivant.
+            log.exception("erreur pendant le traitement de %s", ", ".join(f.name for f in files))
+            self._crash(exc)
+
+    def _crash(self, exc: Exception) -> None:
+        """Notifie une erreur inattendue, une seule fois tant qu'elle se répète à l'identique."""
+        text = f"{type(exc).__name__}: {exc}"
+        if text != self.last_crash:
+            self.last_crash = text
+            self.notifier.notify("error", "Erreur inattendue", f"{text}\nLa surveillance continue.")
 
     def run(self) -> None:
         signal.signal(signal.SIGTERM, self.stop)
@@ -429,11 +478,15 @@ class Watcher:
         self.cfg.input_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.output_dir.mkdir(parents=True, exist_ok=True)
         log.info("Simplex2Duplex %s démarré — %s", __version__, self.cfg.describe())
+        log.info("notifications : %s", self.notifier.describe())
+        self.notifier.notify("startup", f"Simplex2Duplex {__version__} démarré",
+                             f"Surveillance de {self.cfg.input_dir} → {self.cfg.output_dir}")
         while self.running:
             try:
                 self.tick()
-            except Exception:
+            except Exception as exc:
                 log.exception("erreur inattendue (la surveillance continue)")
+                self._crash(exc)
             try:
                 self.HEARTBEAT.touch()
             except OSError:
@@ -442,6 +495,7 @@ class Watcher:
                 if not self.running:
                     break
                 time.sleep(0.1)
+        self.notifier.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -460,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("rectos", type=Path)
     m.add_argument("versos", type=Path)
     m.add_argument("-o", "--output", type=Path, required=True)
+    t = sub.add_parser("notify-test", help="envoie une notification de test à chaque service configuré")
+    t.add_argument("event", nargs="?", default="",
+                   help="simule cet événement (success, partial, single, error, startup) "
+                        "en respectant les filtres ; sans argument, envoie à tous les services")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -469,6 +527,22 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stdout,
     )
     cfg = Config.from_env()
+
+    if args.cmd == "notify-test":
+        notifier = Notifier.from_env()
+        if not notifier.enabled:
+            log.error("aucun service de notification configuré "
+                      "(TELEGRAM_BOT_TOKEN, NTFY_URL, APPRISE_URLS ou APPRISE_API_URL)")
+            return 1
+        log.info("services : %s", notifier.describe())
+        event = args.event.strip().lower()
+        if event:
+            from notify import parse_events
+            (event,) = parse_events(event, "événement")
+        ok = notifier.send_now(event or "success", "Notification de test",
+                               f"Simplex2Duplex {__version__} — si vous lisez ceci, c'est configuré.",
+                               force=not event)
+        return 0 if ok else 1
 
     if args.cmd == "merge":
         with tempfile.TemporaryDirectory(prefix="21scan-") as tmp:
@@ -485,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
         log.info("%s écrit (%d pages)", args.output, pages)
         return 0
 
-    Watcher(cfg).run()
+    Watcher(cfg, Notifier.from_env()).run()
     return 0
 
 

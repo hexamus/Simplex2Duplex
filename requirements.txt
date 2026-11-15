@@ -4,3 +4,5 @@
 ocrmypdf>=17.13,<18
 pikepdf>=10.17
 pillow>=13.0
+# Notifications vers 100+ services (APPRISE_URLS) ; Telegram/ntfy/apprise-api n'en ont pas besoin
+apprise>=1.9
