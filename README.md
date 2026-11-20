@@ -48,6 +48,7 @@ services:
       - /path/to/documents:/output
     environment:
       TZ: Europe/Paris
+      APP_LANG: en                    # language of logs and notifications: en | fr
 ```
 
 ```bash
@@ -57,7 +58,7 @@ docker logs -f simplex2duplex
 
 A complete, commented [`docker-compose.yml`](docker-compose.yml), ready for a Synology, is included in the repository.
 
-> **Note**: log messages are in French; the tables below quote them as they appear.
+> **Language**: `APP_LANG` (`fr` by default, or `en`) sets the language of logs, notifications and error messages, as well as the default OCR languages. The examples below assume `APP_LANG=en`.
 
 ---
 
@@ -124,7 +125,7 @@ With the default settings (`OCR=keep`, `OPTIMIZE=0`, `OUTPUT_TYPE=pdf`), Simplex
 
 ### When to add OCR or optimise
 
-If your scanner produces PDFs without text, or if you want lighter files, Simplex2Duplex relies on [OCRmyPDF](https://ocrmypdf.readthedocs.io/) and Tesseract (French and English included).
+If your scanner produces PDFs without text, or if you want lighter files, Simplex2Duplex relies on [OCRmyPDF](https://ocrmypdf.readthedocs.io/) and Tesseract (French and English included). OCR languages follow `APP_LANG` (`fra+eng` in French, `eng` in English) unless `OCR_LANG` is set.
 
 | `OCR` | Effect | Original images |
 |---|---|---|
@@ -199,8 +200,6 @@ environment:
 
 An error that repeats identically (output folder unreachable, for example) is only notified once. Messages are sent in the background with 3 attempts: an unreachable service never blocks merging.
 
-Notification texts are in French.
-
 ### Telegram
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token into `TELEGRAM_BOT_TOKEN`.
@@ -246,7 +245,7 @@ docker exec simplex2duplex python3 /app/collate.py notify-test          # all se
 docker exec simplex2duplex python3 /app/collate.py notify-test error    # simulates an error, filters applied
 ```
 
-At startup, the log lists active services and their events: `notifications : telegram[partial,error] ntfy[success,partial,single,error,startup]`.
+At startup, the log lists active services and their events: `notifications: telegram[partial,error] ntfy[success,partial,single,error,startup]`.
 
 `NOTIFY_PREFIX` (e.g. `Office`) prefixes every title: handy with several instances.
 
@@ -256,6 +255,7 @@ At startup, the log lists active services and their events: `notifications : tel
 
 | Variable | Default | Description |
 |---|---|---|
+| `APP_LANG` | `fr` | Language of logs, notifications and error messages: `fr` or `en`. Also sets the default `OCR_LANG` |
 | `INPUT_DIR` | `/input` | Watched folder |
 | `OUTPUT_DIR` | `/output` | Output folder |
 | `ARCHIVE_DIR` | `$INPUT_DIR/_originaux` | Destination for originals (`ORIGINALS=keep`) |
@@ -270,7 +270,7 @@ At startup, the log lists active services and their events: `notifications : tel
 | `REMOVE_BLANK` | `false` | Remove blank back pages |
 | `BLANK_THRESHOLD` | `0.5` | Percentage of "inked" area below which a back page is considered blank |
 | `OCR` | `keep` | `keep`, `auto`, `redo`, `force` (see [Quality and OCR](#quality-and-ocr)) |
-| `OCR_LANG` | `fra+eng` | Tesseract languages (`fra`, `eng` included in the image) |
+| `OCR_LANG` | `fra+eng` (fr) / `eng` (en) | Tesseract languages (`fra`, `eng` included in the image). Default depends on `APP_LANG` |
 | `OPTIMIZE` | `0` | OCRmyPDF optimisation level, `0` to `3` |
 | `JPEG_QUALITY` | *(empty)* | JPEG quality enforced when `OPTIMIZE` ≥ 2 (1-100) |
 | `OUTPUT_TYPE` | `pdf` | `pdf` or `pdfa` |
@@ -288,7 +288,7 @@ Instructions for DSM 7.2 and Container Manager.
 1. **Create the folders**, for example `Paper/tmp_scan` and `Paper/Scans` in File Station.
 2. **Find the UID/GID of the user** the scanner will use to write over SMB. Over SSH: `id scanner` → for example `uid=1026(scanner) gid=100(users)`. This user needs read/write access to both folders.
 3. **Container Manager → Project → Create**: path `/volume1/docker/Simplex2Duplex`, source "Create docker-compose.yml", paste the repository's [`docker-compose.yml`](docker-compose.yml) and adjust `user:` and the paths.
-4. Start the project, then open **Container → simplex2duplex → Log**: the `Simplex2Duplex … démarré` line summarises the active configuration.
+4. Start the project, then open **Container → simplex2duplex → Log**: the `Simplex2Duplex … started` line summarises the active configuration.
 
 Why `user:`? The container then runs with the same identity as the scanner: it can archive or delete the dropped PDFs, and the PDFs it produces belong to you (no `root` files that File Station cannot delete).
 
@@ -344,8 +344,8 @@ INPUT_DIR=~/scans OUTPUT_DIR=~/documents python3 collate.py
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `rectos reçus (…), en attente des versos…` (fronts received, waiting for backs) and nothing happens | The second scan did not reach the watched folder: check that both scans use the same profile. |
-| Pair in `_erreurs` with "nombre de pages différent" (different page count) | A sheet was missed or double-fed. Rescan; the originals are in `_erreurs`. |
+| `fronts received (…), waiting for backs…` and nothing happens | The second scan did not reach the watched folder: check that both scans use the same profile. |
+| Pair in `_erreurs` with "page count mismatch" | A sheet was missed or double-fed. Rescan; the originals are in `_erreurs`. |
 | Pages in the wrong order (1, 6, 2, 5…) | The scanner already outputs back pages in order: `REVERSE_EVEN=false`. |
 | Back pages upside down | `ROTATE_EVEN=180`. |
 | A real page is removed as blank | Lower `BLANK_THRESHOLD` (e.g. `0.2`); `LOG_LEVEL=DEBUG` shows the measured ratio. |

@@ -33,6 +33,8 @@ from pathlib import Path
 
 import pikepdf
 
+import i18n
+from i18n import t
 from notify import Notifier
 
 __version__ = os.environ.get("APP_VERSION", "dev")
@@ -58,7 +60,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError:
-        raise SystemExit(f"Variable {name} invalide : {raw!r} (entier attendu)")
+        raise SystemExit(t("cfg.int", name=name, raw=raw))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -68,13 +70,13 @@ def _env_float(name: str, default: float) -> float:
     try:
         return float(raw.replace(",", "."))
     except ValueError:
-        raise SystemExit(f"Variable {name} invalide : {raw!r} (nombre attendu)")
+        raise SystemExit(t("cfg.float", name=name, raw=raw))
 
 
 def _env_choice(name: str, default: str, choices: tuple[str, ...]) -> str:
     raw = os.environ.get(name, "").strip().lower() or default
     if raw not in choices:
-        raise SystemExit(f"Variable {name} invalide : {raw!r} (valeurs possibles : {', '.join(choices)})")
+        raise SystemExit(t("cfg.choice", name=name, raw=raw, choices=", ".join(choices)))
     return raw
 
 
@@ -99,6 +101,7 @@ class Config:
     output_type: str          # pdf | pdfa
     jpeg_quality: int         # 0 = défaut ocrmypdf
     filename_pattern: str
+    lang: str = i18n.DEFAULT_LANG   # fr | en (APP_LANG)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -108,11 +111,13 @@ class Config:
         errors = os.environ.get("ERROR_DIR", "").strip()
         rotate = _env_int("ROTATE_EVEN", 0)
         if rotate not in (0, 90, 180, 270):
-            raise SystemExit("ROTATE_EVEN doit valoir 0, 90, 180 ou 270")
+            raise SystemExit(t("cfg.rotate"))
         optimize = _env_int("OPTIMIZE", 0)
         if not 0 <= optimize <= 3:
-            raise SystemExit("OPTIMIZE doit être compris entre 0 et 3")
+            raise SystemExit(t("cfg.optimize"))
+        lang = i18n.get_lang()
         return cls(
+            lang=lang,
             input_dir=input_dir,
             output_dir=output_dir,
             archive_dir=Path(archive) if archive else input_dir / "_originaux",
@@ -127,7 +132,7 @@ class Config:
             remove_blank=_env_bool("REMOVE_BLANK", False),
             blank_threshold=_env_float("BLANK_THRESHOLD", 0.5),
             ocr=_env_choice("OCR", "keep", ("keep", "auto", "redo", "force")),
-            ocr_lang=os.environ.get("OCR_LANG", "fra+eng").strip() or "fra+eng",
+            ocr_lang=os.environ.get("OCR_LANG", "").strip() or i18n.DEFAULT_OCR_LANG[lang],
             optimize=optimize,
             output_type=_env_choice("OUTPUT_TYPE", "pdf", ("pdf", "pdfa")),
             jpeg_quality=max(0, min(100, _env_int("JPEG_QUALITY", 0))),
@@ -140,14 +145,13 @@ class Config:
         return self.ocr != "keep" or self.optimize > 0 or self.output_type != "pdf"
 
     def describe(self) -> str:
-        return (
-            f"entrée={self.input_dir} sortie={self.output_dir} "
-            f"originaux={self.originals}"
-            + (f"→{self.archive_dir}" if self.originals == "keep" else "")
-            + f" versos_inversés={self.reverse_even} rotation_versos={self.rotate_even}° "
-            f"pages_blanches={'supprimées' if self.remove_blank else 'conservées'} "
-            f"ocr={self.ocr}({self.ocr_lang}) optimize={self.optimize} "
-            f"type={self.output_type} délai_appariement={self.pair_timeout or '∞'}s"
+        return t(
+            "cfg.describe", lang=self.lang, input=self.input_dir, output=self.output_dir,
+            originals=self.originals + (f"→{self.archive_dir}" if self.originals == "keep" else ""),
+            reverse=self.reverse_even, rotate=self.rotate_even,
+            blank=t("cfg.blank_removed") if self.remove_blank else t("cfg.blank_kept"),
+            ocr=self.ocr, ocr_lang=self.ocr_lang, optimize=self.optimize,
+            type=self.output_type, timeout=self.pair_timeout or "∞",
         )
 
 
@@ -186,7 +190,7 @@ def interleave(recto_path: Path, verso_path: Path, out_path: Path, cfg: Config) 
         n_r, n_v = len(rectos.pages), len(versos.pages)
         if n_r != n_v:
             raise CollateError(
-                f"nombre de pages différent : {recto_path.name}={n_r}, {verso_path.name}={n_v}"
+                t("err.page_count", a=recto_path.name, na=n_r, b=verso_path.name, nb=n_v)
             )
         order = list(range(n_v))
         if cfg.reverse_even:
@@ -198,9 +202,10 @@ def interleave(recto_path: Path, verso_path: Path, out_path: Path, cfg: Config) 
                 ratio = page_ink_ratio(verso_path, idx + 1)
                 if ratio < cfg.blank_threshold:
                     blank.add(idx)
-                log.debug("verso p.%d : %.3f %% d'encre", idx + 1, ratio)
+                if log.isEnabledFor(logging.DEBUG):
+                    log.debug(t("log.ink", page=idx + 1, ratio=ratio))
             if blank:
-                log.info("%d verso(s) blanc(s) supprimé(s)", len(blank))
+                log.info(t("log.blank_removed", n=len(blank)))
 
         out = pikepdf.new()
         for i in range(n_r):
@@ -253,7 +258,7 @@ def postprocess(src: Path, dst: Path, cfg: Config) -> None:
     if cfg.jpeg_quality:
         cmd += ["--jpeg-quality", str(cfg.jpeg_quality)]
     cmd += [str(src), str(dst)]
-    log.debug("exécution : %s", " ".join(cmd))
+    log.debug(t("log.exec", cmd=" ".join(cmd)))
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise subprocess.CalledProcessError(res.returncode, cmd, res.stdout, res.stderr)
@@ -299,8 +304,8 @@ def dispose_originals(files: list[Path], cfg: Config) -> list[str]:
             else:
                 move_to(f, cfg.archive_dir)
         except OSError as exc:
-            log.warning("impossible de ranger l'original %s : %s", f.name, exc)
-            problems.append(f"original {f.name} non rangé : {exc}")
+            log.warning(t("log.original_not_stored", name=f.name, exc=exc))
+            problems.append(t("warn.original_not_stored", name=f.name, exc=exc))
     return problems
 
 
@@ -320,17 +325,17 @@ def process(files: list[Path], cfg: Config, notifier: Notifier | None = None,
             else:
                 pages = passthrough(files[0], merged)
         except (CollateError, pikepdf.PdfError) as exc:
-            log.error("échec de l'assemblage (%s) : %s → déplacés dans %s", names, exc, cfg.error_dir)
+            log.error(t("log.merge_failed", names=names, exc=exc, dir=cfg.error_dir))
             moved = []
             for f in files:
                 try:
                     moved.append(move_to(f, cfg.error_dir).name)
                 except OSError as mv_exc:
-                    log.error("impossible de déplacer %s : %s", f.name, mv_exc)
+                    log.error(t("log.cannot_move", name=f.name, exc=mv_exc))
             notifier.notify(
-                "error", "Échec de l'assemblage",
-                f"Fichiers : {names}\nCause : {exc}\n"
-                + (f"Déplacés dans : {cfg.error_dir}" if moved else "⚠️ fichiers non déplacés"),
+                "error", t("notif.merge_failed.title"),
+                t("notif.merge_failed.body", names=names, exc=exc)
+                + (t("notif.moved_to", dir=cfg.error_dir) if moved else t("notif.not_moved")),
             )
             return None
 
@@ -341,33 +346,32 @@ def process(files: list[Path], cfg: Config, notifier: Notifier | None = None,
                 postprocess(merged, processed, cfg)
                 result = processed
             except FileNotFoundError:
-                log.warning("ocrmypdf introuvable : PDF publié sans OCR ni optimisation")
-                warnings.append("ocrmypdf introuvable : PDF publié sans OCR ni optimisation")
+                log.warning(t("warn.no_ocrmypdf"))
+                warnings.append(t("warn.no_ocrmypdf"))
             except subprocess.CalledProcessError as exc:
                 detail = (exc.stderr or "").strip().splitlines()[-1:] or [""]
-                log.warning("ocrmypdf a échoué (code %s) %s — PDF publié sans post-traitement",
-                            exc.returncode, detail[0])
-                warnings.append(f"OCR/optimisation en échec (code {exc.returncode}) {detail[0]}".strip()
-                                + " — PDF publié sans post-traitement")
+                log.warning(t("log.ocrmypdf_failed", code=exc.returncode, detail=detail[0]))
+                warnings.append(t("warn.ocrmypdf_failed", code=exc.returncode, detail=detail[0]).strip()
+                                + t("warn.no_postprocess"))
 
         # Une erreur d'écriture remonte au Watcher (notifiée une fois, originaux laissés en place).
         final = publish(result, cfg, when)
 
     warnings += dispose_originals(files, cfg)
     elapsed = time.monotonic() - t0
-    kind = "recto-verso" if len(files) == 2 else "simple face"
-    log.info("%s → %s (%d page(s), %s, %.1fs)", names, final.name, pages, kind, elapsed)
+    kind = t("kind.duplex") if len(files) == 2 else t("kind.simplex")
+    log.info(t("log.done", names=names, final=final.name, pages=pages, kind=kind, elapsed=elapsed))
 
-    body = f"{final.name} — {pages} page(s), {kind}, {elapsed:.1f}s\nSources : {names}"
+    body = t("notif.done.body", final=final.name, pages=pages, kind=kind, elapsed=elapsed, names=names)
     if reason:
         body += f"\n{reason}"
     if warnings:
-        notifier.notify("partial", "Scan publié avec avertissement(s)",
+        notifier.notify("partial", t("notif.partial.title"),
                         body + "\n" + "\n".join(f"• {w}" for w in warnings))
     elif len(files) == 1:
-        notifier.notify("single", "Scan simple face publié", body)
+        notifier.notify("single", t("notif.single.title"), body)
     else:
-        notifier.notify("success", "Scan recto-verso prêt", body)
+        notifier.notify("success", t("notif.success.title"), body)
     return final
 
 
@@ -387,14 +391,14 @@ class Watcher:
         self.waiting_logged: Path | None = None
 
     def stop(self, *_):
-        log.info("arrêt demandé")
+        log.info(t("log.stop"))
         self.running = False
 
     def candidates(self) -> list[Path]:
         try:
             entries = list(self.cfg.input_dir.iterdir())
         except FileNotFoundError:
-            log.error("dossier d'entrée introuvable : %s", self.cfg.input_dir)
+            log.error(t("log.input_missing", dir=self.cfg.input_dir))
             return []
         return [
             p for p in entries
@@ -447,13 +451,12 @@ class Watcher:
             single = ready[0]
             age = time.time() - self.seen.get(single, (0, 0, time.time()))[2]
             if self.cfg.pair_timeout and age >= self.cfg.pair_timeout:
-                log.info("pas de second fichier pour %s après %ds : traité en simple face",
-                         single.name, self.cfg.pair_timeout)
-                self._safe_process([single], reason=f"Aucun second fichier reçu en {self.cfg.pair_timeout}s")
+                log.info(t("log.single_timeout", name=single.name, timeout=self.cfg.pair_timeout))
+                self._safe_process([single], reason=t("reason.single_timeout", timeout=self.cfg.pair_timeout))
                 self.seen.pop(single, None)
                 self.waiting_logged = None
             elif self.waiting_logged != single:
-                log.info("rectos reçus (%s), en attente des versos…", single.name)
+                log.info(t("log.waiting_backs", name=single.name))
                 self.waiting_logged = single
 
     def _safe_process(self, files: list[Path], reason: str = "") -> None:
@@ -462,7 +465,7 @@ class Watcher:
             self.last_crash = None
         except Exception as exc:
             # Fichiers laissés en place : nouvel essai au tour suivant.
-            log.exception("erreur pendant le traitement de %s", ", ".join(f.name for f in files))
+            log.exception(t("log.processing_error", names=", ".join(f.name for f in files)))
             self._crash(exc)
 
     def _crash(self, exc: Exception) -> None:
@@ -470,22 +473,22 @@ class Watcher:
         text = f"{type(exc).__name__}: {exc}"
         if text != self.last_crash:
             self.last_crash = text
-            self.notifier.notify("error", "Erreur inattendue", f"{text}\nLa surveillance continue.")
+            self.notifier.notify("error", t("notif.unexpected.title"), t("notif.unexpected.body", text=text))
 
     def run(self) -> None:
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
         self.cfg.input_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        log.info("Simplex2Duplex %s démarré — %s", __version__, self.cfg.describe())
-        log.info("notifications : %s", self.notifier.describe())
-        self.notifier.notify("startup", f"Simplex2Duplex {__version__} démarré",
-                             f"Surveillance de {self.cfg.input_dir} → {self.cfg.output_dir}")
+        log.info(t("log.started", version=__version__, config=self.cfg.describe()))
+        log.info(t("log.notifications", services=self.notifier.describe()))
+        self.notifier.notify("startup", t("notif.startup.title", version=__version__),
+                             t("notif.startup.body", input=self.cfg.input_dir, output=self.cfg.output_dir))
         while self.running:
             try:
                 self.tick()
             except Exception as exc:
-                log.exception("erreur inattendue (la surveillance continue)")
+                log.exception(t("log.unexpected"))
                 self._crash(exc)
             try:
                 self.HEARTBEAT.touch()
@@ -503,21 +506,21 @@ class Watcher:
 # --------------------------------------------------------------------------- #
 
 def main(argv: list[str] | None = None) -> int:
+    i18n.init_from_env()
     parser = argparse.ArgumentParser(
         prog="collate.py",
-        description="Assemble un PDF de rectos et un PDF de versos en un seul PDF recto-verso.",
+        description=t("cli.description"),
     )
     parser.add_argument("--version", action="version", version=f"Simplex2Duplex {__version__}")
     sub = parser.add_subparsers(dest="cmd")
-    sub.add_parser("watch", help="surveille INPUT_DIR (comportement par défaut)")
-    m = sub.add_parser("merge", help="assemble deux fichiers une seule fois")
+    sub.add_parser("watch", help=t("cli.watch"))
+    m = sub.add_parser("merge", help=t("cli.merge"))
     m.add_argument("rectos", type=Path)
     m.add_argument("versos", type=Path)
     m.add_argument("-o", "--output", type=Path, required=True)
-    t = sub.add_parser("notify-test", help="envoie une notification de test à chaque service configuré")
-    t.add_argument("event", nargs="?", default="",
-                   help="simule cet événement (success, partial, single, error, startup) "
-                        "en respectant les filtres ; sans argument, envoie à tous les services")
+    nt = sub.add_parser("notify-test", help=t("cli.notify_test"))
+    nt.add_argument("event", nargs="?", default="",
+                   help=t("cli.notify_test.event"))
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -531,16 +534,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "notify-test":
         notifier = Notifier.from_env()
         if not notifier.enabled:
-            log.error("aucun service de notification configuré "
-                      "(TELEGRAM_BOT_TOKEN, NTFY_URL, APPRISE_URLS ou APPRISE_API_URL)")
+            log.error(t("cli.no_service"))
             return 1
-        log.info("services : %s", notifier.describe())
+        log.info(t("cli.services", services=notifier.describe()))
         event = args.event.strip().lower()
         if event:
             from notify import parse_events
-            (event,) = parse_events(event, "événement")
-        ok = notifier.send_now(event or "success", "Notification de test",
-                               f"Simplex2Duplex {__version__} — si vous lisez ceci, c'est configuré.",
+            (event,) = parse_events(event, t("cli.event"))
+        ok = notifier.send_now(event or "success", t("notif.test.title"),
+                               t("notif.test.body", version=__version__),
                                force=not event)
         return 0 if ok else 1
 
@@ -556,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
                 postprocess(merged, args.output, cfg)
             else:
                 shutil.copyfile(merged, args.output)
-        log.info("%s écrit (%d pages)", args.output, pages)
+        log.info(t("cli.written", path=args.output, pages=pages))
         return 0
 
     Watcher(cfg, Notifier.from_env()).run()
