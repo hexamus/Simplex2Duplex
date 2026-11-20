@@ -1,38 +1,40 @@
 # Simplex2Duplex
 
-**Le recto-verso pour les scanners qui ne savent faire que du recto.**
+**English** | [Français](README.fr.md)
 
-Votre chargeur de documents (ADF) ne scanne qu'une face ? Scannez la pile, retournez-la, scannez-la à nouveau : Simplex2Duplex récupère les deux PDF dans un dossier, remet les pages dans l'ordre (1, 2, 3, 4…) et dépose un PDF recto-verso unique dans le dossier de votre choix.
+**Double-sided scanning for scanners that can only do one side.**
 
-Remplaçant maintenu de [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/pdfcollate) (plus mis à jour depuis 2022), avec en plus : choix libre des dossiers, assemblage **sans perte** qui conserve l'OCR du scanner, OCR optionnel, suppression des versos blancs, rotation des versos, gestion des erreurs et des scans simple face, **notifications** (Telegram, ntfy, Apprise).
+Your document feeder (ADF) only scans one side? Scan the stack, flip it over, scan it again: Simplex2Duplex picks up both PDFs from a folder, puts the pages back in order (1, 2, 3, 4…) and drops a single double-sided PDF in the folder of your choice.
+
+A maintained replacement for [`cranium/pdfcollate`](https://hub.docker.com/r/cranium/pdfcollate) (not updated since 2022), with extras: freely chosen folders, **lossless** merging that keeps the scanner's OCR, optional OCR, blank back-page removal, back-page rotation, error handling and single-sided scans, **notifications** (Telegram, ntfy, Apprise).
 
 ```text
  Scanner ─ SMB ─►  /input                              /output
-                   ├─ scan_0001.pdf  (rectos 1-3-5) ┐
-                   └─ scan_0002.pdf  (versos 6-4-2) ┴─►  Scan_2026-10-28_10-15-03.pdf (1-2-3-4-5-6)
+                   ├─ scan_0001.pdf  (fronts 1-3-5) ┐
+                   └─ scan_0002.pdf  (backs  6-4-2) ┴─►  Scan_2026-10-28_10-15-03.pdf (1-2-3-4-5-6)
 ```
 
-Image multi-architecture (`amd64`, `arm64`) : `ghcr.io/hexamus/simplex2duplex`
+Multi-architecture image (`amd64`, `arm64`): `ghcr.io/hexamus/simplex2duplex`
 
 ---
 
-## Sommaire
+## Contents
 
-- [Démarrage rapide](#démarrage-rapide)
-- [Comment scanner](#comment-scanner)
-- [Choisir les dossiers](#choisir-les-dossiers)
-- [Qualité et OCR](#qualité-et-ocr)
+- [Quick start](#quick-start)
+- [How to scan](#how-to-scan)
+- [Choosing folders](#choosing-folders)
+- [Quality and OCR](#quality-and-ocr)
 - [Notifications](#notifications)
-- [Toutes les variables](#toutes-les-variables)
-- [Installation sur Synology](#installation-sur-synology)
-- [Configurer le scanner (exemple Brother)](#configurer-le-scanner-exemple-brother)
-- [Assemblage ponctuel en ligne de commande](#assemblage-ponctuel-en-ligne-de-commande)
-- [Dépannage](#dépannage)
-- [Construire l'image soi-même](#construire-limage-soi-même)
+- [All variables](#all-variables)
+- [Installing on Synology](#installing-on-synology)
+- [Setting up the scanner (Brother example)](#setting-up-the-scanner-brother-example)
+- [One-off merge from the command line](#one-off-merge-from-the-command-line)
+- [Troubleshooting](#troubleshooting)
+- [Building the image yourself](#building-the-image-yourself)
 
 ---
 
-## Démarrage rapide
+## Quick start
 
 ```yaml
 services:
@@ -40,10 +42,10 @@ services:
     image: ghcr.io/hexamus/simplex2duplex:latest
     container_name: simplex2duplex
     restart: unless-stopped
-    user: "1000:1000"                 # utilisateur propriétaire des dossiers
+    user: "1000:1000"                 # user that owns the folders
     volumes:
-      - /chemin/vers/depot_scanner:/input
-      - /chemin/vers/documents:/output
+      - /path/to/scanner_drop:/input
+      - /path/to/documents:/output
     environment:
       TZ: Europe/Paris
 ```
@@ -53,323 +55,326 @@ docker compose up -d
 docker logs -f simplex2duplex
 ```
 
-Un fichier [`docker-compose.yml`](docker-compose.yml) complet et commenté, prêt pour un Synology, est fourni dans le dépôt.
+A complete, commented [`docker-compose.yml`](docker-compose.yml), ready for a Synology, is included in the repository.
+
+> **Note**: log messages are in French; the tables below quote them as they appear.
 
 ---
 
-## Comment scanner
+## How to scan
 
-1. Posez la pile dans le chargeur et scannez → un premier PDF (les **rectos** : pages 1, 3, 5…).
-2. Reprenez la pile **sans la mélanger**, retournez-la d'un bloc et reposez-la dans le chargeur.
-3. Scannez à nouveau → un second PDF (les **versos**, qui arrivent dans l'ordre inverse : 6, 4, 2…).
-4. Quelques secondes plus tard, le PDF recto-verso apparaît dans le dossier de sortie.
+1. Put the stack in the feeder and scan → a first PDF (the **fronts**: pages 1, 3, 5…).
+2. Take the stack **without shuffling it**, flip it over as a whole and put it back in the feeder.
+3. Scan again → a second PDF (the **backs**, which arrive in reverse order: 6, 4, 2…).
+4. A few seconds later, the double-sided PDF appears in the output folder.
 
-Règles d'appariement :
+Pairing rules:
 
-- Les fichiers sont associés **deux par deux, dans leur ordre d'arrivée** (le plus ancien = rectos).
-- Les deux fichiers doivent avoir **le même nombre de pages**. Une page de versos vierge ? Scannez-la quand même, et activez `REMOVE_BLANK` pour la retirer automatiquement.
-- Si aucun second fichier n'arrive dans le délai `PAIR_TIMEOUT` (15 min par défaut), le premier est considéré comme un document **simple face** et publié tel quel.
-- Si les nombres de pages diffèrent, les deux fichiers sont déplacés dans `/input/_erreurs` : rien n'est perdu, rien n'est publié à tort.
+- Files are paired **two by two, in order of arrival** (the oldest = fronts).
+- Both files must have **the same number of pages**. A blank back page? Scan it anyway, and enable `REMOVE_BLANK` to drop it automatically.
+- If no second file arrives within `PAIR_TIMEOUT` (15 min by default), the first one is treated as a **single-sided** document and published as is.
+- If the page counts differ, both files are moved to `/input/_erreurs`: nothing is lost, nothing is published by mistake.
 
-> **Astuce** : si votre scanner permet plusieurs profils, créez-en un « Recto-verso » qui envoie vers le dossier surveillé et un « Simple » qui envoie directement vers le dossier final. Vos scans simple face n'attendront alors jamais le délai d'appariement.
+> **Tip**: if your scanner supports several profiles, create a "Double-sided" one that sends to the watched folder and a "Single" one that sends straight to the final folder. Your single-sided scans will then never wait for the pairing timeout.
 
 ---
 
-## Choisir les dossiers
+## Choosing folders
 
-Les emplacements se choisissent librement, de deux façons complémentaires.
+Locations can be chosen freely, in two complementary ways.
 
-**Avec les volumes Docker (recommandé)** : seul le côté gauche change.
+**With Docker volumes (recommended)**: only the left-hand side changes.
 
 ```yaml
 volumes:
-  - /volume1/Papier/tmp_scan:/input     # dépôt du scanner
-  - /volume1/Papier/Scans:/output       # PDF finaux
-  - /volume1/Archives/scans_bruts:/archive   # (facultatif) originaux
+  - /volume1/Paper/tmp_scan:/input          # scanner drop folder
+  - /volume1/Paper/Scans:/output            # final PDFs
+  - /volume1/Archives/raw_scans:/archive    # (optional) originals
 ```
 
-**Avec les variables d'environnement** : utile si vous montez un seul volume, ou hors Docker.
+**With environment variables**: useful if you mount a single volume, or outside Docker.
 
-| Variable | Défaut | Rôle |
+| Variable | Default | Purpose |
 |---|---|---|
-| `INPUT_DIR` | `/input` | Dossier surveillé (seuls les PDF à la racine sont pris, pas les sous-dossiers) |
-| `OUTPUT_DIR` | `/output` | Dossier où sont publiés les PDF assemblés |
-| `ARCHIVE_DIR` | `$INPUT_DIR/_originaux` | Où ranger les originaux quand `ORIGINALS=keep` |
-| `ERROR_DIR` | `$INPUT_DIR/_erreurs` | Où déplacer les paires impossibles à assembler |
+| `INPUT_DIR` | `/input` | Watched folder (only PDFs at the root are picked up, not subfolders) |
+| `OUTPUT_DIR` | `/output` | Folder where merged PDFs are published |
+| `ARCHIVE_DIR` | `$INPUT_DIR/_originaux` | Where originals are stored when `ORIGINALS=keep` |
+| `ERROR_DIR` | `$INPUT_DIR/_erreurs` | Where pairs that cannot be merged are moved |
 
-Exemple avec un seul partage :
+Example with a single share:
 
 ```yaml
 volumes:
-  - /volume1/Papier:/papier
+  - /volume1/Paper:/paper
 environment:
-  INPUT_DIR: /papier/tmp_scan
-  OUTPUT_DIR: /papier/Scans
-  ARCHIVE_DIR: /papier/Archives/originaux
+  INPUT_DIR: /paper/tmp_scan
+  OUTPUT_DIR: /paper/Scans
+  ARCHIVE_DIR: /paper/Archives/originals
 ```
 
-Le PDF final est d'abord écrit sous un nom temporaire caché (`.nom.pdf.part`) puis renommé : un outil qui surveille le dossier de sortie (Paperless-ngx, Synology Drive…) ne verra jamais de fichier à moitié écrit.
+The final PDF is first written under a hidden temporary name (`.name.pdf.part`) and then renamed: a tool watching the output folder (Paperless-ngx, Synology Drive…) will never see a half-written file.
 
 ---
 
-## Qualité et OCR
+## Quality and OCR
 
-### Par défaut : aucune perte
+### By default: no loss
 
-Avec les réglages par défaut (`OCR=keep`, `OPTIMIZE=0`, `OUTPUT_TYPE=pdf`), Simplex2Duplex **ne recompresse rien**. Les pages sont recopiées objet par objet avec [pikepdf](https://github.com/pikepdf/pikepdf) : images, résolution, couleurs et **calque de texte OCR produit par le scanner** arrivent intacts dans le PDF final. La qualité se règle donc là où elle doit l'être : **dans le profil de scan** (résolution, couleur/gris, format « PDF interrogeable » si votre scanner le propose).
+With the default settings (`OCR=keep`, `OPTIMIZE=0`, `OUTPUT_TYPE=pdf`), Simplex2Duplex **recompresses nothing**. Pages are copied object by object with [pikepdf](https://github.com/pikepdf/pikepdf): images, resolution, colours and the **OCR text layer produced by the scanner** reach the final PDF untouched. Quality is therefore set where it belongs: **in the scan profile** (resolution, colour/grey, "searchable PDF" format if your scanner offers it).
 
-### Quand ajouter de l'OCR ou optimiser
+### When to add OCR or optimise
 
-Si votre scanner produit des PDF sans texte, ou si vous voulez des fichiers plus légers, Simplex2Duplex s'appuie sur [OCRmyPDF](https://ocrmypdf.readthedocs.io/) et Tesseract (français et anglais inclus).
+If your scanner produces PDFs without text, or if you want lighter files, Simplex2Duplex relies on [OCRmyPDF](https://ocrmypdf.readthedocs.io/) and Tesseract (French and English included).
 
-| `OCR` | Effet | Images d'origine |
+| `OCR` | Effect | Original images |
 |---|---|---|
-| `keep` *(défaut)* | Aucun OCR. Le texte déjà présent est conservé. | Intactes |
-| `auto` | OCR **uniquement** des pages qui n'ont pas encore de texte. | Intactes |
-| `redo` | Remplace le calque OCR existant par celui de Tesseract (utile si l'OCR du scanner est médiocre). | Intactes |
-| `force` | Rastérise chaque page puis refait l'OCR. À réserver aux PDF « bizarres ». | **Recréées** |
+| `keep` *(default)* | No OCR. Existing text is kept. | Untouched |
+| `auto` | OCR **only** on pages that have no text yet. | Untouched |
+| `redo` | Replaces the existing OCR layer with Tesseract's (useful if the scanner's OCR is poor). | Untouched |
+| `force` | Rasterises every page then redoes the OCR. For "odd" PDFs only. | **Re-created** |
 
-| `OPTIMIZE` | Effet |
+| `OPTIMIZE` | Effect |
 |---|---|
-| `0` *(défaut)* | Aucune optimisation |
-| `1` | Optimisations sans perte visible |
-| `2` | Recompression avec perte (JPEG, PNG via pngquant) |
-| `3` | Compression la plus agressive |
+| `0` *(default)* | No optimisation |
+| `1` | Optimisations with no visible loss |
+| `2` | Lossy recompression (JPEG, PNG via pngquant) |
+| `3` | Most aggressive compression |
 
-`OUTPUT_TYPE=pdfa` produit un PDF/A (archivage longue durée) ; la conversion passe par Ghostscript, qui réécrit les images.
+`OUTPUT_TYPE=pdfa` produces a PDF/A (long-term archiving); the conversion goes through Ghostscript, which rewrites the images.
 
-### Mesures
+### Measurements
 
-PDF de 6 pages A4 en couleur à 150 dpi, déjà OCRisé par le « scanner » (sources : 111 850 octets).
+6-page A4 colour PDF at 150 dpi, already OCR'd by the "scanner" (sources: 111,850 bytes).
 
-| Réglage | Taille | Images identiques aux sources | Texte |
+| Setting | Size | Images identical to sources | Text |
 |---|---:|:---:|:---:|
-| défaut (`keep`) | 110 916 o | ✅ | ✅ conservé |
-| `OCR=redo` | 113 474 o | ✅ | ✅ refait |
-| `ROTATE_EVEN=180` | 110 922 o | ✅ | ✅ |
-| `OPTIMIZE=1` | 108 927 o | — | ✅ |
-| `OPTIMIZE=3` | 64 031 o | — | ✅ |
-| `OUTPUT_TYPE=pdfa` | 339 398 o | — | ✅ |
-| `OCR=force` | 1 592 345 o | — | ✅ refait |
+| default (`keep`) | 110,916 B | ✅ | ✅ kept |
+| `OCR=redo` | 113,474 B | ✅ | ✅ redone |
+| `ROTATE_EVEN=180` | 110,922 B | ✅ | ✅ |
+| `OPTIMIZE=1` | 108,927 B | — | ✅ |
+| `OPTIMIZE=3` | 64,031 B | — | ✅ |
+| `OUTPUT_TYPE=pdfa` | 339,398 B | — | ✅ |
+| `OCR=force` | 1,592,345 B | — | ✅ redone |
 
-**Recommandation** : scannez en 300 dpi (gris pour du courrier, couleur si nécessaire) et gardez les réglages par défaut. Si le scanner ne sait pas produire de PDF interrogeable, passez `OCR=auto`. Ajoutez `OPTIMIZE=2` seulement si l'espace disque compte.
+**Recommendation**: scan at 300 dpi (grey for letters, colour when needed) and keep the default settings. If the scanner cannot produce searchable PDFs, set `OCR=auto`. Add `OPTIMIZE=2` only if disk space matters.
 
-En cas d'échec d'OCRmyPDF, le PDF assemblé est publié **sans** post-traitement plutôt que d'être perdu (un avertissement apparaît dans les logs).
+If OCRmyPDF fails, the merged PDF is published **without** post-processing rather than lost (a warning appears in the logs).
 
 ---
 
 ## Notifications
 
-Simplex2Duplex peut prévenir quand un scan est prêt, ou seulement quand quelque chose cloche. Quatre services sont pris en charge ; chacun s'active dès que sa variable principale est renseignée, et plusieurs peuvent fonctionner en même temps.
+Simplex2Duplex can let you know when a scan is ready, or only when something goes wrong. Four services are supported; each one is enabled as soon as its main variable is set, and several can run at the same time.
 
-| Service | Variables minimales |
+| Service | Minimum variables |
 |---|---|
 | **Telegram** | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
-| **ntfy** | `NTFY_URL` (ex. `https://ntfy.sh/mes-scans`) |
-| **Apprise** (bibliothèque intégrée, 100+ services : Discord, Gotify, Pushover, e-mail, Matrix, Home Assistant…) | `APPRISE_URLS` |
-| **Apprise API** (serveur [apprise-api](https://github.com/caronc/apprise-api) déjà en place) | `APPRISE_API_URL` |
+| **ntfy** | `NTFY_URL` (e.g. `https://ntfy.sh/my-scans`) |
+| **Apprise** (built-in library, 100+ services: Discord, Gotify, Pushover, e-mail, Matrix, Home Assistant…) | `APPRISE_URLS` |
+| **Apprise API** (an existing [apprise-api](https://github.com/caronc/apprise-api) server) | `APPRISE_API_URL` |
 
-### Choisir les événements
+### Choosing events
 
-| Événement | Quand | Alias acceptés |
+| Event | When | Accepted aliases |
 |---|---|---|
-| `success` | Assemblage recto-verso réussi | `succes`, `ok`, `reussi` |
-| `partial` | PDF publié, mais avec un problème : OCR/optimisation en échec, original impossible à archiver… | `partiel`, `warning` |
-| `single` | Fichier resté seul, publié en simple face après `PAIR_TIMEOUT` | `simple` |
-| `error` | Assemblage impossible (fichiers dans `_erreurs`), écriture impossible, erreur inattendue | `erreur`, `echec` |
-| `startup` | Démarrage du conteneur | `demarrage` |
+| `success` | Double-sided merge succeeded | `succes`, `ok`, `reussi` |
+| `partial` | PDF published, but with a problem: OCR/optimisation failed, original could not be archived… | `partiel`, `warning` |
+| `single` | File left alone, published single-sided after `PAIR_TIMEOUT` | `simple` |
+| `error` | Merge impossible (files in `_erreurs`), cannot write, unexpected error | `erreur`, `echec` |
+| `startup` | Container started | `demarrage` |
 
-`NOTIFY_EVENTS` fixe le filtre commun : `all` (tout), `none` (rien) ou une liste, par exemple `error,partial` *(défaut)*. Chaque service peut avoir son propre filtre, qui remplace alors `NOTIFY_EVENTS` pour lui seul : `TELEGRAM_EVENTS`, `NTFY_EVENTS`, `APPRISE_EVENTS`, `APPRISE_API_EVENTS`.
+`NOTIFY_EVENTS` sets the shared filter: `all`, `none` or a list, for example `error,partial` *(default)*. Each service can have its own filter, which then replaces `NOTIFY_EVENTS` for that service only: `TELEGRAM_EVENTS`, `NTFY_EVENTS`, `APPRISE_EVENTS`, `APPRISE_API_EVENTS`.
 
-Exemple : seulement les problèmes sur Telegram, mais tout sur ntfy.
+Example: only problems on Telegram, everything on ntfy.
 
 ```yaml
 environment:
-  NOTIFY_EVENTS: "error,partial"          # filtre commun
+  NOTIFY_EVENTS: "error,partial"          # shared filter
   TELEGRAM_BOT_TOKEN: "123456:ABC-DEF…"
   TELEGRAM_CHAT_ID: "123456789"
   NTFY_URL: "https://ntfy.example.com/scans"
   NTFY_TOKEN: "tk_…"
-  NTFY_EVENTS: "all"                      # ntfy reçoit tout
+  NTFY_EVENTS: "all"                      # ntfy gets everything
 ```
 
-Une erreur qui se répète à l'identique (dossier de sortie inaccessible, par exemple) n'est notifiée qu'une fois. Les envois partent en arrière-plan avec 3 tentatives : un service injoignable ne bloque jamais l'assemblage.
+An error that repeats identically (output folder unreachable, for example) is only notified once. Messages are sent in the background with 3 attempts: an unreachable service never blocks merging.
+
+Notification texts are in French.
 
 ### Telegram
 
-1. Créez un bot avec [@BotFather](https://t.me/BotFather) → `/newbot` → copiez le jeton dans `TELEGRAM_BOT_TOKEN`.
-2. Envoyez un message à votre bot (ou ajoutez-le à un groupe), puis ouvrez `https://api.telegram.org/bot<JETON>/getUpdates` : la valeur `chat.id` va dans `TELEGRAM_CHAT_ID` (les groupes commencent par `-100`).
+1. Create a bot with [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token into `TELEGRAM_BOT_TOKEN`.
+2. Send a message to your bot (or add it to a group), then open `https://api.telegram.org/bot<TOKEN>/getUpdates`: the `chat.id` value goes into `TELEGRAM_CHAT_ID` (groups start with `-100`).
 
-| Variable | Défaut | Rôle |
+| Variable | Default | Purpose |
 |---|---|---|
-| `TELEGRAM_CHAT_ID` | | Un ou plusieurs identifiants séparés par des virgules |
-| `TELEGRAM_THREAD_ID` | | Sujet (topic) d'un groupe-forum |
-| `TELEGRAM_SILENT_EVENTS` | `success,single,startup` | Événements envoyés sans son ; `none` pour toujours sonner |
-| `TELEGRAM_API_URL` | `https://api.telegram.org` | Serveur Bot API auto-hébergé |
+| `TELEGRAM_CHAT_ID` | | One or more IDs separated by commas |
+| `TELEGRAM_THREAD_ID` | | Topic of a forum group |
+| `TELEGRAM_SILENT_EVENTS` | `success,single,startup` | Events sent without sound; `none` to always ring |
+| `TELEGRAM_API_URL` | `https://api.telegram.org` | Self-hosted Bot API server |
 
 ### ntfy
 
-| Variable | Rôle |
+| Variable | Purpose |
 |---|---|
-| `NTFY_URL` | Serveur + sujet : `https://ntfy.sh/mon-sujet-secret` ou votre instance |
-| `NTFY_TOKEN` | Jeton d'accès (`tk_…`) — ou bien `NTFY_USER` + `NTFY_PASSWORD` |
-| `NTFY_PRIORITY` | Force une priorité 1-5. Par défaut : erreur 5, partiel 4, réussite/simple 3, démarrage 2 |
-| `NTFY_TAGS` | Remplace les tags/emojis automatiques (ex. `printer,fr`) |
-| `NTFY_CLICK` | URL ouverte en touchant la notification (ex. votre Paperless) |
+| `NTFY_URL` | Server + topic: `https://ntfy.sh/my-secret-topic` or your own instance |
+| `NTFY_TOKEN` | Access token (`tk_…`) — or `NTFY_USER` + `NTFY_PASSWORD` |
+| `NTFY_PRIORITY` | Forces a priority 1-5. Default: error 5, partial 4, success/single 3, startup 2 |
+| `NTFY_TAGS` | Replaces the automatic tags/emojis (e.g. `printer,fr`) |
+| `NTFY_CLICK` | URL opened when tapping the notification (e.g. your Paperless) |
 
 ### Apprise
 
-`APPRISE_URLS` accepte une ou plusieurs [URL Apprise](https://github.com/caronc/apprise/wiki) séparées par des espaces ou des virgules :
+`APPRISE_URLS` accepts one or more [Apprise URLs](https://github.com/caronc/apprise/wiki) separated by spaces or commas:
 
 ```yaml
 APPRISE_URLS: "discord://webhook_id/webhook_token gotify://gotify.example.com/AbCdEf"
 ```
 
-Si vous avez déjà un serveur **apprise-api**, utilisez plutôt :
+If you already run an **apprise-api** server, use instead:
 
-| Variable | Rôle |
+| Variable | Purpose |
 |---|---|
-| `APPRISE_API_URL` | `http://apprise:8000/notify/ma-cle` (configuration enregistrée sur le serveur) ou `http://apprise:8000/notify/` |
-| `APPRISE_API_URLS` | URL(s) de destination, uniquement avec `/notify/` sans clé |
-| `APPRISE_API_TAG` | Ne notifier que les cibles portant ce tag |
+| `APPRISE_API_URL` | `http://apprise:8000/notify/my-key` (configuration stored on the server) or `http://apprise:8000/notify/` |
+| `APPRISE_API_URLS` | Destination URL(s), only with `/notify/` without a key |
+| `APPRISE_API_TAG` | Only notify targets with this tag |
 
-### Tester
+### Testing
 
 ```bash
-docker exec simplex2duplex python3 /app/collate.py notify-test          # tous les services, sans filtre
-docker exec simplex2duplex python3 /app/collate.py notify-test error    # simule une erreur, filtres appliqués
+docker exec simplex2duplex python3 /app/collate.py notify-test          # all services, no filter
+docker exec simplex2duplex python3 /app/collate.py notify-test error    # simulates an error, filters applied
 ```
 
-Au démarrage, le journal indique les services actifs et leurs événements : `notifications : telegram[partial,error] ntfy[success,partial,single,error,startup]`.
+At startup, the log lists active services and their events: `notifications : telegram[partial,error] ntfy[success,partial,single,error,startup]`.
 
-`NOTIFY_PREFIX` (ex. `Bureau`) préfixe chaque titre : pratique avec plusieurs instances.
+`NOTIFY_PREFIX` (e.g. `Office`) prefixes every title: handy with several instances.
 
 ---
 
-## Toutes les variables
+## All variables
 
-| Variable | Défaut | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `INPUT_DIR` | `/input` | Dossier surveillé |
-| `OUTPUT_DIR` | `/output` | Dossier de sortie |
-| `ARCHIVE_DIR` | `$INPUT_DIR/_originaux` | Destination des originaux (`ORIGINALS=keep`) |
-| `ERROR_DIR` | `$INPUT_DIR/_erreurs` | Destination des paires en échec |
-| `ORIGINALS` | `keep` | `keep` = archiver les originaux, `delete` = les supprimer |
-| `PAIR_TIMEOUT` | `900` | Secondes avant de publier un fichier resté seul en simple face. `0` = attendre indéfiniment |
-| `STABLE_SECONDS` | `10` | Secondes sans modification avant de considérer qu'un fichier est complètement reçu |
-| `POLL_INTERVAL` | `5` | Fréquence de scrutation du dossier (secondes) |
-| `SORT_BY` | `mtime` | Ordre d'appariement : `mtime` (date d'arrivée) ou `name` (nom de fichier) |
-| `REVERSE_EVEN` | `true` | Inverser l'ordre des versos (pile retournée). `false` si votre scanner les sort déjà dans l'ordre |
-| `ROTATE_EVEN` | `0` | Rotation appliquée aux versos : `0`, `90`, `180`, `270` |
-| `REMOVE_BLANK` | `false` | Supprimer les versos blancs |
-| `BLANK_THRESHOLD` | `0.5` | Pourcentage de surface « encrée » sous lequel un verso est jugé blanc |
-| `OCR` | `keep` | `keep`, `auto`, `redo`, `force` (voir [Qualité et OCR](#qualité-et-ocr)) |
-| `OCR_LANG` | `fra+eng` | Langues Tesseract (`fra`, `eng` inclus dans l'image) |
-| `OPTIMIZE` | `0` | Niveau d'optimisation OCRmyPDF, de `0` à `3` |
-| `JPEG_QUALITY` | *(vide)* | Qualité JPEG imposée quand `OPTIMIZE` ≥ 2 (1-100) |
-| `OUTPUT_TYPE` | `pdf` | `pdf` ou `pdfa` |
-| `FILENAME_PATTERN` | `Scan_%Y-%m-%d_%H-%M-%S` | Nom du fichier produit, au format [strftime](https://strftime.org/). `.pdf` est ajouté, ainsi que `_2`, `_3`… en cas de doublon |
-| `TZ` | `Europe/Paris` | Fuseau horaire (horodatage des noms et des logs) |
-| `LOG_LEVEL` | `INFO` | `DEBUG` affiche notamment le taux d'encre de chaque verso |
-| `NOTIFY_EVENTS` | `error,partial` | Événements notifiés : `all`, `none` ou liste (voir [Notifications](#notifications), qui détaille aussi les variables de chaque service) |
+| `INPUT_DIR` | `/input` | Watched folder |
+| `OUTPUT_DIR` | `/output` | Output folder |
+| `ARCHIVE_DIR` | `$INPUT_DIR/_originaux` | Destination for originals (`ORIGINALS=keep`) |
+| `ERROR_DIR` | `$INPUT_DIR/_erreurs` | Destination for failed pairs |
+| `ORIGINALS` | `keep` | `keep` = archive originals, `delete` = delete them |
+| `PAIR_TIMEOUT` | `900` | Seconds before a file left alone is published single-sided. `0` = wait forever |
+| `STABLE_SECONDS` | `10` | Seconds without changes before a file is considered fully received |
+| `POLL_INTERVAL` | `5` | Folder polling interval (seconds) |
+| `SORT_BY` | `mtime` | Pairing order: `mtime` (arrival time) or `name` (file name) |
+| `REVERSE_EVEN` | `true` | Reverse the order of back pages (flipped stack). `false` if your scanner already outputs them in order |
+| `ROTATE_EVEN` | `0` | Rotation applied to back pages: `0`, `90`, `180`, `270` |
+| `REMOVE_BLANK` | `false` | Remove blank back pages |
+| `BLANK_THRESHOLD` | `0.5` | Percentage of "inked" area below which a back page is considered blank |
+| `OCR` | `keep` | `keep`, `auto`, `redo`, `force` (see [Quality and OCR](#quality-and-ocr)) |
+| `OCR_LANG` | `fra+eng` | Tesseract languages (`fra`, `eng` included in the image) |
+| `OPTIMIZE` | `0` | OCRmyPDF optimisation level, `0` to `3` |
+| `JPEG_QUALITY` | *(empty)* | JPEG quality enforced when `OPTIMIZE` ≥ 2 (1-100) |
+| `OUTPUT_TYPE` | `pdf` | `pdf` or `pdfa` |
+| `FILENAME_PATTERN` | `Scan_%Y-%m-%d_%H-%M-%S` | Output file name, in [strftime](https://strftime.org/) format. `.pdf` is appended, plus `_2`, `_3`… on duplicates |
+| `TZ` | `Europe/Paris` | Time zone (timestamps in names and logs) |
+| `LOG_LEVEL` | `INFO` | `DEBUG` notably shows the ink ratio of each back page |
+| `NOTIFY_EVENTS` | `error,partial` | Notified events: `all`, `none` or a list (see [Notifications](#notifications), which also details each service's variables) |
 
 ---
 
-## Installation sur Synology
+## Installing on Synology
 
-Instructions pour DSM 7.2 et Container Manager.
+Instructions for DSM 7.2 and Container Manager.
 
-1. **Créer les dossiers**, par exemple `Papier/tmp_scan` et `Papier/Scans` dans File Station.
-2. **Trouver l'UID/GID de l'utilisateur** qu'utilisera le scanner pour écrire en SMB. En SSH : `id scanner` → par exemple `uid=1026(scanner) gid=100(users)`. Cet utilisateur doit avoir les droits lecture/écriture sur les deux dossiers.
-3. **Container Manager → Projet → Créer** : chemin `/volume1/docker/Simplex2Duplex`, source « Créer docker-compose.yml », collez le [`docker-compose.yml`](docker-compose.yml) du dépôt en ajustant `user:` et les chemins.
-4. Lancez le projet, puis ouvrez **Conteneur → simplex2duplex → Journal** : la ligne `Simplex2Duplex … démarré` récapitule la configuration active.
+1. **Create the folders**, for example `Paper/tmp_scan` and `Paper/Scans` in File Station.
+2. **Find the UID/GID of the user** the scanner will use to write over SMB. Over SSH: `id scanner` → for example `uid=1026(scanner) gid=100(users)`. This user needs read/write access to both folders.
+3. **Container Manager → Project → Create**: path `/volume1/docker/Simplex2Duplex`, source "Create docker-compose.yml", paste the repository's [`docker-compose.yml`](docker-compose.yml) and adjust `user:` and the paths.
+4. Start the project, then open **Container → simplex2duplex → Log**: the `Simplex2Duplex … démarré` line summarises the active configuration.
 
-Pourquoi `user:` ? Le conteneur tourne alors avec la même identité que le scanner : il peut archiver ou supprimer les PDF déposés, et les PDF produits vous appartiennent (pas de fichiers `root` impossibles à supprimer depuis File Station).
+Why `user:`? The container then runs with the same identity as the scanner: it can archive or delete the dropped PDFs, and the PDFs it produces belong to you (no `root` files that File Station cannot delete).
 
-Les dossiers `@eaDir` créés par l'indexation Synology et les fichiers cachés sont ignorés.
+`@eaDir` folders created by Synology indexing and hidden files are ignored.
 
-**Mise à jour** : Container Manager → Projet → Simplex2Duplex → Action → *Construire* (re-télécharge `latest`), ou figez une version précise (`ghcr.io/hexamus/simplex2duplex:1.0.0`).
-
----
-
-## Configurer le scanner (exemple Brother)
-
-Exemple pour une multifonction Brother récente (ex. MFC-L3760CDW) ; les libellés peuvent varier selon le modèle et le firmware. Les autres marques proposent des réglages équivalents (« Scan vers dossier réseau », « Scan to SMB »).
-
-Les profils se créent dans l'interface web de l'imprimante (**Gestion à partir du Web**, `https://<ip-imprimante>`), puis s'utilisent depuis l'écran tactile.
-
-1. **Numériser → Numérisation vers FTP/SFTP/Réseau/HTTP/SharePoint** : choisissez **Réseau** pour un profil libre, donnez-lui un nom (ex. `Recto-verso`).
-2. **Profil de numérisation vers le réseau** — renseignez :
-   - Adresse de l'hôte : IP du NAS ; Répertoire de stockage : `Papier\tmp_scan`
-   - Nom de fichier : au choix (Simplex2Duplex renomme le résultat)
-   - Qualité : `Couleur 300 ppp` ou `Gris 300 ppp`
-   - Type de fichier : **PDF multi-pages** (ou PDF interrogeable si proposé)
-   - Méthode d'authentification : `Auto` ; utilisateur / mot de passe du compte SMB choisi plus haut
-3. *(Facultatif)* Un second profil `Simple` vers `Papier\Scans` pour les documents simple face.
-4. Vérifiez que l'horloge de l'imprimante est juste (**Réseau → Protocole → SNTP**) : un écart d'heure fait échouer l'authentification SMB.
-
-Sur l'écran tactile : **Numériser → vers le réseau → Recto-verso**, une fois pour les rectos, une fois pour les versos.
-
-**Orientation des versos** : retournez la pile comme on tourne la page d'un livre (autour du bord long) et les versos arriveront à l'endroit. Si vous la retournez de haut en bas, ils arriveront tête en bas : réglez alors `ROTATE_EVEN=180`.
+**Updating**: Container Manager → Project → Simplex2Duplex → Action → *Build* (pulls `latest` again), or pin a specific version (`ghcr.io/hexamus/simplex2duplex:1.0.0`).
 
 ---
 
-## Assemblage ponctuel en ligne de commande
+## Setting up the scanner (Brother example)
 
-Sans surveillance de dossier, pour un fichier isolé :
+Example for a recent Brother multifunction printer (e.g. MFC-L3760CDW); labels may vary by model and firmware. Other brands offer equivalent settings ("Scan to network folder", "Scan to SMB").
+
+Profiles are created in the printer's web interface (**Web Based Management**, `https://<printer-ip>`), then used from the touchscreen.
+
+1. **Scan → Scan to FTP/SFTP/Network/HTTP/SharePoint**: choose **Network** for a free profile and give it a name (e.g. `Duplex`).
+2. **Scan to Network Profile** — fill in:
+   - Host Address: NAS IP; Store Directory: `Paper\tmp_scan`
+   - File Name: anything (Simplex2Duplex renames the result)
+   - Quality: `Color 300 dpi` or `Gray 300 dpi`
+   - File Type: **multi-page PDF** (or searchable PDF if available)
+   - Auth. Method: `Auto`; username / password of the SMB account chosen above
+3. *(Optional)* A second `Single` profile pointing to `Paper\Scans` for single-sided documents.
+4. Make sure the printer's clock is correct (**Network → Protocol → SNTP**): a time offset makes SMB authentication fail.
+
+On the touchscreen: **Scan → to Network → Duplex**, once for the fronts, once for the backs.
+
+**Back-page orientation**: flip the stack like turning a book page (around the long edge) and the backs will arrive the right way up. If you flip it top to bottom, they will arrive upside down: then set `ROTATE_EVEN=180`.
+
+---
+
+## One-off merge from the command line
+
+Without folder watching, for a single document:
 
 ```bash
 docker run --rm -v "$PWD":/data ghcr.io/hexamus/simplex2duplex \
-  merge /data/rectos.pdf /data/versos.pdf -o /data/document.pdf
+  merge /data/fronts.pdf /data/backs.pdf -o /data/document.pdf
 ```
 
-Les variables (`OCR`, `ROTATE_EVEN`, `REMOVE_BLANK`…) s'appliquent aussi : `docker run --rm -e OCR=auto …`.
+Variables (`OCR`, `ROTATE_EVEN`, `REMOVE_BLANK`…) apply here too: `docker run --rm -e OCR=auto …`.
 
-Le script fonctionne aussi hors Docker (Python ≥ 3.9 et `pip install pikepdf` ; OCRmyPDF et poppler-utils seulement pour les options correspondantes) :
+The script also works outside Docker (Python ≥ 3.9 and `pip install pikepdf`; OCRmyPDF and poppler-utils only for the matching options):
 
 ```bash
-python3 collate.py merge rectos.pdf versos.pdf -o document.pdf
+python3 collate.py merge fronts.pdf backs.pdf -o document.pdf
 INPUT_DIR=~/scans OUTPUT_DIR=~/documents python3 collate.py
 ```
 
 ---
 
-## Dépannage
+## Troubleshooting
 
-| Symptôme | Cause probable / solution |
+| Symptom | Likely cause / fix |
 |---|---|
-| `rectos reçus (…), en attente des versos…` et rien ne se passe | Le second scan n'est pas arrivé dans le dossier surveillé : vérifiez que les deux scans utilisent le même profil. |
-| Paire dans `_erreurs` avec « nombre de pages différent » | Une feuille a été oubliée ou double-alimentée. Rescannez ; les originaux sont dans `_erreurs`. |
-| Pages dans le mauvais ordre (1, 6, 2, 5…) | Le scanner sort déjà les versos dans l'ordre : `REVERSE_EVEN=false`. |
-| Versos à l'envers | `ROTATE_EVEN=180`. |
-| Une vraie page est supprimée comme blanche | Baissez `BLANK_THRESHOLD` (ex. `0.2`) ; `LOG_LEVEL=DEBUG` affiche le taux mesuré. |
-| Un verso blanc n'est pas supprimé | Montez `BLANK_THRESHOLD` (ex. `1.5`) : bruit, ombre ou transparence du recto. |
-| `Permission denied` dans les logs | L'utilisateur de `user:` n'a pas les droits sur les dossiers montés. |
-| Un fichier arrivé seul a été publié trop tôt | Augmentez `PAIR_TIMEOUT`. |
-| Aucune notification reçue | `notify-test` (voir [Tester](#tester)) ; vérifiez le filtre `NOTIFY_EVENTS` et que le NAS peut joindre le service (DNS, pare-feu). |
-| Deux scans simultanés de personnes différentes se mélangent | L'appariement suit l'ordre d'arrivée : utilisez un dossier surveillé par personne (une instance par dossier). |
+| `rectos reçus (…), en attente des versos…` (fronts received, waiting for backs) and nothing happens | The second scan did not reach the watched folder: check that both scans use the same profile. |
+| Pair in `_erreurs` with "nombre de pages différent" (different page count) | A sheet was missed or double-fed. Rescan; the originals are in `_erreurs`. |
+| Pages in the wrong order (1, 6, 2, 5…) | The scanner already outputs back pages in order: `REVERSE_EVEN=false`. |
+| Back pages upside down | `ROTATE_EVEN=180`. |
+| A real page is removed as blank | Lower `BLANK_THRESHOLD` (e.g. `0.2`); `LOG_LEVEL=DEBUG` shows the measured ratio. |
+| A blank back page is not removed | Raise `BLANK_THRESHOLD` (e.g. `1.5`): noise, shadow or front-page show-through. |
+| `Permission denied` in the logs | The `user:` account has no rights on the mounted folders. |
+| A file that arrived alone was published too early | Increase `PAIR_TIMEOUT`. |
+| No notification received | `notify-test` (see [Testing](#testing)); check the `NOTIFY_EVENTS` filter and that the NAS can reach the service (DNS, firewall). |
+| Two simultaneous scans from different people get mixed | Pairing follows arrival order: use one watched folder per person (one instance per folder). |
 
-Le conteneur expose un *healthcheck* : il passe `unhealthy` si la boucle de surveillance se bloque.
+The container exposes a *healthcheck*: it turns `unhealthy` if the watch loop gets stuck.
 
 ---
 
-
-## Construire l'image soi-même
+## Building the image yourself
 
 ```bash
 git clone https://github.com/hexamus/Simplex2Duplex.git && cd Simplex2Duplex
 docker build -t simplex2duplex .
 ```
 
-L'image publiée est construite par GitHub Actions ([`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)) pour `linux/amd64` et `linux/arm64` :
+The published image is built by GitHub Actions ([`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)) for `linux/amd64` and `linux/arm64`:
 
-- chaque push sur `main` → `ghcr.io/hexamus/simplex2duplex:latest` et `:sha-xxxxxxx` ;
-- chaque tag `vX.Y.Z` → `:X.Y.Z` et `:X.Y`.
+- every push to `main` → `ghcr.io/hexamus/simplex2duplex:latest` and `:sha-xxxxxxx`;
+- every `vX.Y.Z` tag → `:X.Y.Z` and `:X.Y`.
 
-Base : `python:3.13-alpine`, OCRmyPDF 17, pikepdf 10, Pillow 13, Apprise (depuis PyPI), Tesseract 5 (fra, eng). L'image est reconstruite sans cache chaque lundi pour intégrer les derniers correctifs de sécurité Alpine et PyPI.
+Base: `python:3.13-alpine`, OCRmyPDF 17, pikepdf 10, Pillow 13, Apprise (from PyPI), Tesseract 5 (fra, eng). The image is rebuilt without cache every Monday to pick up the latest Alpine and PyPI security fixes.
 
 ---
 
-## Licence
+## License
 
-Distribué sous licence [MIT](LICENSE). Image construite à partir de logiciels libres : OCRmyPDF (MPL-2.0), pikepdf (MPL-2.0), Tesseract (Apache-2.0), Ghostscript (AGPL-3.0), Poppler (GPL).
+Released under the [MIT](LICENSE) license. Image built from free software: OCRmyPDF (MPL-2.0), pikepdf (MPL-2.0), Tesseract (Apache-2.0), Ghostscript (AGPL-3.0), Poppler (GPL).
