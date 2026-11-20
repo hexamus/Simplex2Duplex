@@ -37,6 +37,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
+from i18n import t
+
 log = logging.getLogger("simplex2duplex.notify")
 
 EVENTS = ("success", "partial", "single", "error", "startup")
@@ -85,10 +87,7 @@ def parse_events(raw: str | None, name: str, default: frozenset[str] | None = No
             continue
         item = _ALIASES.get(item, item)
         if item not in EVENTS:
-            raise SystemExit(
-                f"Variable {name} invalide : événement {item!r} inconnu "
-                f"(valeurs possibles : all, none, {', '.join(EVENTS)})"
-            )
+            raise SystemExit(t("ntf.unknown_event", name=name, item=item, events=", ".join(EVENTS)))
         result.add(item)
     return frozenset(result)
 
@@ -120,7 +119,7 @@ def _http(url: str, data: bytes, headers: dict[str, str]) -> None:
         detail = exc.read(300).decode("utf-8", "replace").strip()
         raise RuntimeError(f"HTTP {exc.code} {exc.reason} {detail}") from None
     except (urllib.error.URLError, socket.timeout, OSError) as exc:
-        raise RuntimeError(f"connexion impossible : {getattr(exc, 'reason', exc)}") from None
+        raise RuntimeError(t("ntf.connection", reason=getattr(exc, "reason", exc))) from None
 
 
 def _json(url: str, payload: dict, headers: dict[str, str] | None = None) -> None:
@@ -141,7 +140,7 @@ class Backend:
         raise NotImplementedError
 
     def describe(self) -> str:
-        return f"{self.name}[{','.join(e for e in EVENTS if e in self.events) or 'aucun'}]"
+        return f"{self.name}[{','.join(e for e in EVENTS if e in self.events) or t('ntf.none')}]"
 
 
 @dataclass
@@ -186,11 +185,11 @@ class Ntfy(Backend):
         """https://ntfy.sh/mon-sujet -> ('https://ntfy.sh', 'mon-sujet')"""
         parsed = urllib.parse.urlsplit(url.strip())
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise SystemExit(f"NTFY_URL invalide : {url!r} (ex. https://ntfy.sh/mon-sujet)")
+            raise SystemExit(t("ntf.ntfy_url", url=url))
         path = parsed.path.rstrip("/")
         base, _, topic = path.rpartition("/")
         if not topic:
-            raise SystemExit(f"NTFY_URL invalide : {url!r} — le sujet (topic) manque après le serveur")
+            raise SystemExit(t("ntf.ntfy_topic", url=url))
         return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, base, "", "")), topic
 
     def send(self, msg: Message) -> None:
@@ -222,16 +221,14 @@ class AppriseLib(Backend):
         try:
             import apprise  # type: ignore
         except ImportError:
-            raise SystemExit("APPRISE_URLS est défini mais la bibliothèque apprise n'est pas installée "
-                             "(pip install apprise)")
+            raise SystemExit(t("ntf.apprise_missing"))
         self._apprise = apprise
         if not log.isEnabledFor(logging.DEBUG):
             logging.getLogger("apprise").setLevel(logging.WARNING)
         self._apobj = apprise.Apprise()
         for url in self.urls:
             if not self._apobj.add(url) or len(self._apobj) == 0:
-                raise SystemExit("APPRISE_URLS : aucune URL reconnue par Apprise "
-                                 "(voir https://github.com/caronc/apprise/wiki)")
+                raise SystemExit(t("ntf.apprise_no_url"))
 
     def send(self, msg: Message) -> None:
         ntype = {
@@ -241,7 +238,7 @@ class AppriseLib(Backend):
         }.get(_APPRISE_TYPE.get(msg.event, "info"), self._apprise.NotifyType.INFO)
         if not self._apobj.notify(title=f"{msg.icon} {msg.title}", body=msg.body or msg.title,
                                   notify_type=ntype):
-            raise RuntimeError("au moins un service Apprise a refusé la notification")
+            raise RuntimeError(t("ntf.apprise_refused"))
 
 
 @dataclass
@@ -293,10 +290,10 @@ class Notifier:
         chats = [c.strip() for c in env.get("TELEGRAM_CHAT_ID", "").replace(";", ",").split(",") if c.strip()]
         if token or chats:
             if not (token and chats):
-                raise SystemExit("Telegram : TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID doivent être définis ensemble")
+                raise SystemExit(t("ntf.telegram_pair"))
             thread = env.get("TELEGRAM_THREAD_ID", "").strip()
             if thread and not thread.lstrip("-").isdigit():
-                raise SystemExit("TELEGRAM_THREAD_ID doit être un nombre")
+                raise SystemExit(t("ntf.telegram_thread"))
             backends.append(Telegram(
                 "telegram", events("TELEGRAM_EVENTS"), token=token, chat_ids=chats, thread_id=thread,
                 api_url=env.get("TELEGRAM_API_URL", "").strip() or "https://api.telegram.org",
@@ -309,7 +306,7 @@ class Notifier:
             server, topic = Ntfy.split_url(ntfy_url)
             prio = env.get("NTFY_PRIORITY", "").strip()
             if prio and prio not in ("1", "2", "3", "4", "5"):
-                raise SystemExit("NTFY_PRIORITY doit être compris entre 1 et 5")
+                raise SystemExit(t("ntf.ntfy_priority"))
             backends.append(Ntfy(
                 "ntfy", events("NTFY_EVENTS"), server=server, topic=topic,
                 token=env.get("NTFY_TOKEN", "").strip(),
@@ -325,7 +322,7 @@ class Notifier:
         api_url = env.get("APPRISE_API_URL", "").strip()
         if api_url:
             if not api_url.startswith(("http://", "https://")):
-                raise SystemExit("APPRISE_API_URL doit commencer par http:// ou https://")
+                raise SystemExit(t("ntf.apprise_api_url"))
             backends.append(AppriseApi(
                 "apprise-api", events("APPRISE_API_EVENTS"), url=api_url,
                 tag=env.get("APPRISE_API_TAG", "").strip(), urls=env.get("APPRISE_API_URLS", "").strip(),
@@ -340,7 +337,7 @@ class Notifier:
         return bool(self.backends)
 
     def describe(self) -> str:
-        return " ".join(b.describe() for b in self.backends) if self.backends else "aucune"
+        return " ".join(b.describe() for b in self.backends) if self.backends else t("ntf.none_f")
 
     def notify(self, event: str, title: str, body: str = "") -> None:
         if not self.backends or not any(b.wants(event) for b in self.backends):
@@ -355,15 +352,15 @@ class Notifier:
         ok = True
         targets = [b for b in self.backends if force or b.wants(event)]
         if not targets:
-            log.warning("aucun service n'est abonné à l'événement %r (voir NOTIFY_EVENTS / *_EVENTS)", event)
+            log.warning(t("ntf.no_subscriber", event=event))
             return False
         for b in targets:
             try:
                 b.send(msg)
-                log.info("notification %s : envoyée", b.name)
+                log.info(t("ntf.sent", name=b.name))
             except Exception as exc:
                 ok = False
-                log.error("notification %s : échec — %s", b.name, exc)
+                log.error(t("ntf.failed", name=b.name, exc=exc))
         return ok
 
     def close(self, timeout: float = 8) -> None:
@@ -389,12 +386,11 @@ class Notifier:
         for attempt in range(1, RETRIES + 1):
             try:
                 backend.send(msg)
-                log.debug("notification %s envoyée (%s)", backend.name, msg.event)
+                log.debug(t("ntf.sent_debug", name=backend.name, event=msg.event))
                 return
             except Exception as exc:
                 if attempt == RETRIES:
-                    log.warning("notification %s abandonnée après %d essais : %s", backend.name, attempt, exc)
+                    log.warning(t("ntf.gave_up", name=backend.name, n=attempt, exc=exc))
                     return
-                log.debug("notification %s : essai %d échoué (%s), nouvel essai dans %ds",
-                          backend.name, attempt, exc, RETRY_DELAY)
+                log.debug(t("ntf.retry", name=backend.name, n=attempt, exc=exc, delay=RETRY_DELAY))
                 time.sleep(RETRY_DELAY)

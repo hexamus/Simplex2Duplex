@@ -15,6 +15,7 @@ services:
       - /volume1/Papier/Scans:/output       # where the double-sided PDF lands
     environment:
       TZ: Europe/Paris
+      APP_LANG: "fr"             # logs, notifications & default OCR language: fr | en
 
       # --- Pairing -------------------------------------------------------
       PAIR_TIMEOUT: "900"        # s; lone file after this delay → published as is (0 = wait)
@@ -26,7 +27,7 @@ services:
 
       # --- Quality / OCR -------------------------------------------------
       OCR: "keep"                # keep | auto | redo | force
-      OCR_LANG: "fra+eng"
+      # OCR_LANG: "fra+eng"      # default follows APP_LANG (fr → fra+eng, en → eng)
       OPTIMIZE: "0"              # 0 = no recompression; 1 lossless; 2-3 lossy
       OUTPUT_TYPE: "pdf"         # pdf | pdfa
 

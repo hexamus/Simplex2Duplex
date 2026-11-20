@@ -48,6 +48,7 @@ services:
       - /chemin/vers/documents:/output
     environment:
       TZ: Europe/Paris
+      APP_LANG: fr                    # langue des logs et notifications : fr | en
 ```
 
 ```bash
@@ -56,6 +57,8 @@ docker logs -f simplex2duplex
 ```
 
 Un fichier [`docker-compose.yml`](docker-compose.yml) complet et commenté, prêt pour un Synology, est fourni dans le dépôt.
+
+> **Langue** : `APP_LANG` (`fr` par défaut, ou `en`) choisit la langue des logs, des notifications et des messages d'erreur, ainsi que les langues d'OCR par défaut.
 
 ---
 
@@ -122,7 +125,7 @@ Avec les réglages par défaut (`OCR=keep`, `OPTIMIZE=0`, `OUTPUT_TYPE=pdf`), Si
 
 ### Quand ajouter de l'OCR ou optimiser
 
-Si votre scanner produit des PDF sans texte, ou si vous voulez des fichiers plus légers, Simplex2Duplex s'appuie sur [OCRmyPDF](https://ocrmypdf.readthedocs.io/) et Tesseract (français et anglais inclus).
+Si votre scanner produit des PDF sans texte, ou si vous voulez des fichiers plus légers, Simplex2Duplex s'appuie sur [OCRmyPDF](https://ocrmypdf.readthedocs.io/) et Tesseract (français et anglais inclus). Les langues d'OCR suivent `APP_LANG` (`fra+eng` en français, `eng` en anglais), sauf si `OCR_LANG` est défini.
 
 | `OCR` | Effet | Images d'origine |
 |---|---|---|
@@ -252,6 +255,7 @@ Au démarrage, le journal indique les services actifs et leurs événements : `n
 
 | Variable | Défaut | Description |
 |---|---|---|
+| `APP_LANG` | `fr` | Langue des logs, notifications et messages d'erreur : `fr` ou `en`. Fixe aussi `OCR_LANG` par défaut |
 | `INPUT_DIR` | `/input` | Dossier surveillé |
 | `OUTPUT_DIR` | `/output` | Dossier de sortie |
 | `ARCHIVE_DIR` | `$INPUT_DIR/_originaux` | Destination des originaux (`ORIGINALS=keep`) |
@@ -266,7 +270,7 @@ Au démarrage, le journal indique les services actifs et leurs événements : `n
 | `REMOVE_BLANK` | `false` | Supprimer les versos blancs |
 | `BLANK_THRESHOLD` | `0.5` | Pourcentage de surface « encrée » sous lequel un verso est jugé blanc |
 | `OCR` | `keep` | `keep`, `auto`, `redo`, `force` (voir [Qualité et OCR](#qualité-et-ocr)) |
-| `OCR_LANG` | `fra+eng` | Langues Tesseract (`fra`, `eng` inclus dans l'image) |
+| `OCR_LANG` | `fra+eng` (fr) / `eng` (en) | Langues Tesseract (`fra`, `eng` inclus dans l'image). Défaut selon `APP_LANG` |
 | `OPTIMIZE` | `0` | Niveau d'optimisation OCRmyPDF, de `0` à `3` |
 | `JPEG_QUALITY` | *(vide)* | Qualité JPEG imposée quand `OPTIMIZE` ≥ 2 (1-100) |
 | `OUTPUT_TYPE` | `pdf` | `pdf` ou `pdfa` |

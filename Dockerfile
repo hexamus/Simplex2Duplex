@@ -37,10 +37,11 @@ ENV APP_VERSION=${APP_VERSION} \
     PYTHONUNBUFFERED=1 \
     HOME=/tmp \
     TZ=Europe/Paris \
+    APP_LANG=fr \
     INPUT_DIR=/input \
     OUTPUT_DIR=/output
 
-COPY collate.py notify.py /app/
+COPY collate.py notify.py i18n.py /app/
 RUN chmod 0755 /app/collate.py
 
 WORKDIR /app
